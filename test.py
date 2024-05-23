@@ -9,18 +9,18 @@ from kneed import KneeLocator
 @click.command()
 @click.option('--file', prompt='Enter the path to the Excel file', help='Path to the Excel file to process')
 def main(file):
-    # Step 1: Read the Excel file
+
     df = pd.read_excel(file)
     display_columns(df)
 
-    # Step 2: Get user input for columns to ignore and label columns
+
     ignore_columns, label_columns = get_column_selections(len(df.columns))
 
     x_columns = [i for i in range(len(df.columns)) if i not in ignore_columns and i not in label_columns]
     X = df.iloc[:, x_columns]
     labels = df.iloc[:, label_columns] if label_columns else None
 
-    # Step 3: Preprocess the data
+
     X = preprocess_data(X)
 
     click.echo("\nX-block Data (First 5 rows):")
@@ -32,14 +32,14 @@ def main(file):
     else:
         click.echo("\nNo label columns selected.")
 
-    # Step 4: Perform PCA
-    pca = PCA(n_components=2)  # Set number of components to 2 for visualization
+
+    pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X)
 
-    # Step 5: Plot PCA results
-    plot_pca_results(X_pca, labels)
 
-    # Step 6: Determine the number of clusters
+    plot_pca_results(X_pca)
+
+
     num_clusters_choice = click.prompt("Choose how to determine the number of clusters:\n1: User input\n2: Elbow method", type=int)
     if num_clusters_choice == 1:
         num_clusters = click.prompt("Enter the number of clusters for K-means", type=int, default=3)
@@ -49,13 +49,13 @@ def main(file):
         click.echo("Invalid choice. Defaulting to 3 clusters.")
         num_clusters = 3
 
-    # Step 7: Perform K-means clustering
-    if X.shape[0] > 1:  # Ensure there are enough samples for clustering
-        kmeans = KMeans(n_clusters=num_clusters, algorithm='lloyd')
+
+    if X.shape[0] > 1:
+        kmeans = KMeans(n_clusters=num_clusters)
         kmeans.fit(X)
         labels_kmeans = kmeans.labels_
 
-        # Step 8: Plot K-means clustering results
+
         plot_kmeans_results(X_pca, labels_kmeans)
     else:
         click.echo("\nNot enough samples for clustering.")
@@ -96,13 +96,9 @@ def preprocess_data(X):
         click.echo("\nNo preprocessing applied.")
         return X
 
-def plot_pca_results(X_pca, labels):
+def plot_pca_results(X_pca):
     plt.figure(figsize=(8, 6))
-    if labels is not None:
-        plt.scatter(X_pca[:, 0], X_pca[:, 1], c=labels, cmap='viridis')
-        plt.colorbar(label='Labels')
-    else:
-        plt.scatter(X_pca[:, 0], X_pca[:, 1], color='b', alpha=0.5)
+    plt.scatter(X_pca[:, 0], X_pca[:, 1], color='b', alpha=0.5)
     plt.title('PCA Results')
     plt.xlabel('Principal Component 1')
     plt.ylabel('Principal Component 2')
