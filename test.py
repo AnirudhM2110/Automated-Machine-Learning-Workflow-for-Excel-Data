@@ -122,7 +122,7 @@ def determine_num_clusters(X):
         kmeans.fit(X)
         distortions.append(kmeans.inertia_)
 
-    # Plot the elbow curve
+
     plt.figure(figsize=(8, 6))
     plt.plot(K, distortions, 'bx-')
     plt.xlabel('Number of clusters')
@@ -131,7 +131,7 @@ def determine_num_clusters(X):
     plt.grid(True)
     plt.show()
 
-    # Use KneeLocator to find the optimal number of clusters (elbow point)
+
     knee_locator = KneeLocator(K, distortions, curve='convex', direction='decreasing')
     num_clusters = knee_locator.elbow
     click.echo(f"\nOptimal number of clusters determined using the elbow method: {num_clusters}")
