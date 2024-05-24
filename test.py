@@ -9,7 +9,7 @@ from kneed import KneeLocator
 
 @click.command()
 def main():
-    # List all .xlsx files in the current directory
+
     files = [f for f in os.listdir('.') if f.endswith('.xlsx')]
     if not files:
         click.echo("No Excel files found in the current directory.")
