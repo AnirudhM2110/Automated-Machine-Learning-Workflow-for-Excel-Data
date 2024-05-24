@@ -1,4 +1,5 @@
 import click
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -7,19 +8,31 @@ from sklearn.cluster import KMeans
 from kneed import KneeLocator
 
 @click.command()
-@click.option('--file', prompt='Enter the path to the Excel file', help='Path to the Excel file to process')
-def main(file):
+def main():
+    # List all .xlsx files in the current directory
+    files = [f for f in os.listdir('.') if f.endswith('.xlsx')]
+    if not files:
+        click.echo("No Excel files found in the current directory.")
+        return
 
+    click.echo("Available Excel files:")
+    for i, file in enumerate(files):
+        click.echo(f"{i}: {file}")
+
+    file_index = click.prompt('Select the file to process by entering the index number', type=int)
+    if file_index < 0 or file_index >= len(files):
+        click.echo("Invalid selection.")
+        return
+
+    file = files[file_index]
     df = pd.read_excel(file)
     display_columns(df)
-
 
     ignore_columns, label_columns = get_column_selections(len(df.columns))
 
     x_columns = [i for i in range(len(df.columns)) if i not in ignore_columns and i not in label_columns]
     X = df.iloc[:, x_columns]
     labels = df.iloc[:, label_columns] if label_columns else None
-
 
     X = preprocess_data(X)
 
@@ -32,13 +45,10 @@ def main(file):
     else:
         click.echo("\nNo label columns selected.")
 
-
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X)
 
-
     plot_pca_results(X_pca)
-
 
     num_clusters_choice = click.prompt("Choose how to determine the number of clusters:\n1: User input\n2: Elbow method", type=int)
     if num_clusters_choice == 1:
@@ -49,12 +59,10 @@ def main(file):
         click.echo("Invalid choice. Defaulting to 3 clusters.")
         num_clusters = 3
 
-
     if X.shape[0] > 1:
         kmeans = KMeans(n_clusters=num_clusters)
         kmeans.fit(X)
         labels_kmeans = kmeans.labels_
-
 
         plot_kmeans_results(X_pca, labels_kmeans)
     else:
@@ -122,7 +130,6 @@ def determine_num_clusters(X):
         kmeans.fit(X)
         distortions.append(kmeans.inertia_)
 
-
     plt.figure(figsize=(8, 6))
     plt.plot(K, distortions, 'bx-')
     plt.xlabel('Number of clusters')
@@ -131,7 +138,6 @@ def determine_num_clusters(X):
     plt.grid(True)
     plt.show()
 
-
     knee_locator = KneeLocator(K, distortions, curve='convex', direction='decreasing')
     num_clusters = knee_locator.elbow
     click.echo(f"\nOptimal number of clusters determined using the elbow method: {num_clusters}")
@@ -139,3 +145,4 @@ def determine_num_clusters(X):
 
 if __name__ == "__main__":
     main()
+
