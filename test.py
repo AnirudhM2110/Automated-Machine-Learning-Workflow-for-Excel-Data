@@ -25,7 +25,25 @@ def main():
         return
 
     file = files[file_index - 1]
-    df = pd.read_excel(file)
+
+
+    excel_file = pd.ExcelFile(file)
+    sheet_names = excel_file.sheet_names
+    if len(sheet_names) > 1:
+        click.echo("Available sheets:")
+        for i, sheet in enumerate(sheet_names, start=1):
+            click.echo(f"{i}: {sheet}")
+
+        sheet_index = click.prompt('Select the sheet to process by entering the index number', type=int)
+        if sheet_index < 1 or sheet_index > len(sheet_names):
+            click.echo("Invalid selection.")
+            return
+
+        sheet_name = sheet_names[sheet_index - 1]
+    else:
+        sheet_name = sheet_names[0]
+
+    df = pd.read_excel(file, sheet_name=sheet_name)
     display_columns(df)
 
     ignore_columns, label_columns = get_column_selections(len(df.columns))
@@ -33,7 +51,6 @@ def main():
     x_columns = [i for i in range(len(df.columns)) if i not in ignore_columns and i not in label_columns]
     X = df.iloc[:, x_columns]
     labels = df.iloc[:, label_columns] if label_columns else None
-
 
     if not check_numeric_columns(X):
         click.echo(
@@ -54,7 +71,6 @@ def main():
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X)
 
-
     save_pca_results(X_pca, pca, X.columns)
 
     click.echo("\nPlease close the plot window to proceed.")
@@ -63,7 +79,7 @@ def main():
     num_clusters_choice = click.prompt(
         "\nChoose how to determine the number of clusters:\n1: User input\n2: Elbow method\nChoose an option", type=int)
     if num_clusters_choice == 1:
-        num_clusters = click.prompt("Enter the number of clusters for K-means", type=int, default=3)
+        num_clusters = click.prompt("Enter the number of clusters for K-means", type=int)
     elif num_clusters_choice == 2:
         num_clusters = determine_num_clusters(X)
     else:
@@ -88,11 +104,12 @@ def display_columns(df):
 
 
 def get_column_selections(num_columns):
-    ignore_columns = click.prompt("Enter column numbers to ignore (comma-separated)", type=str)
-    label_columns = click.prompt("Enter column numbers that is label (ignore if doing unsupervised learning)", type=str, default='')
+    ignore_columns = click.prompt("Enter column numbers to ignore (space separated)", type=str)
+    label_columns = click.prompt("Enter column numbers that is label (ignore if doing unsupervised learning)", type=str,
+                                 default='')
 
-    ignore_columns = [int(i) - 1 for i in ignore_columns.split(',') if i.isdigit() and 1 <= int(i) <= num_columns]
-    label_columns = [int(i) - 1 for i in label_columns.split(',') if i.isdigit() and 1 <= int(i) <= num_columns]
+    ignore_columns = [int(i) - 1 for i in ignore_columns.split(' ') if i.isdigit() and 1 <= int(i) <= num_columns]
+    label_columns = [int(i) - 1 for i in label_columns.split(' ') if i.isdigit() and 1 <= int(i) <= num_columns]
 
     return ignore_columns, label_columns
 
@@ -185,11 +202,9 @@ def determine_num_clusters(X):
 
 
 def save_pca_results(X_pca, pca, columns):
-
     pca_df = pd.DataFrame(X_pca, columns=['PC1', 'PC2'])
     pca_df.to_excel('pca_transformed_data.xlsx', index=False)
     click.echo("\nPCA-transformed data saved to 'pca_transformed_data.xlsx'.")
-
 
     loadings = pd.DataFrame(pca.components_.T, columns=['PC1', 'PC2'], index=columns)
     loadings.to_excel('pca_loadings.xlsx')
