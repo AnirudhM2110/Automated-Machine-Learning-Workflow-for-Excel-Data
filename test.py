@@ -1,6 +1,7 @@
 import click
 import os
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
@@ -25,7 +26,6 @@ def main():
         return
 
     file = files[file_index - 1]
-
 
     excel_file = pd.ExcelFile(file)
     sheet_names = excel_file.sheet_names
@@ -59,22 +59,21 @@ def main():
 
     X = preprocess_data(X)
 
-    click.echo("\nX-block Data (First 5 rows):")
-    click.echo(X.head())
+    click.echo("\nX-block Data :")
+    click.echo(X)
 
     if labels is not None:
-        click.echo("\nLabels (First 5 rows):")
-        click.echo(labels.head())
+        click.echo("\nLabels :")
+        click.echo(labels)
     else:
         click.echo("\nNo label columns selected.")
 
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X)
+    pca, X_pca, num_components = select_pca_components(X)
 
     save_pca_results(X_pca, pca, X.columns)
 
     click.echo("\nPlease close the plot window to proceed.")
-    plot_pca_results(X_pca)
+    plot_pca_results(X_pca, pca)
 
     num_clusters_choice = click.prompt(
         "\nChoose how to determine the number of clusters:\n1: User input\n2: Elbow method\nChoose an option", type=int)
@@ -88,11 +87,11 @@ def main():
 
     if X.shape[0] > 1:
         kmeans = KMeans(n_clusters=num_clusters)
-        kmeans.fit(X)
+        kmeans.fit(X_pca)
         labels_kmeans = kmeans.labels_
 
         click.echo("\nPlease close the plot window to proceed.")
-        plot_kmeans_results(X_pca, labels_kmeans)
+        plot_kmeans_combinations(X_pca, labels_kmeans)
     else:
         click.echo("\nNot enough samples for clustering.")
 
@@ -147,32 +146,48 @@ def preprocess_data(X):
         return X
 
 
-def plot_pca_results(X_pca):
+def select_pca_components(X, variance_threshold=0.9):
+    pca = PCA().fit(X)
+    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
+    num_components = np.argmax(cumulative_variance >= variance_threshold) + 1
+
+    click.echo(f"\nNumber of PCA components selected: {num_components}")
+    pca = PCA(n_components=num_components)
+    X_pca = pca.fit_transform(X)
+
+    return pca, X_pca, num_components
+
+
+def plot_pca_results(X_pca, pca):
     if not os.path.exists('figures'):
         os.makedirs('figures')
+
+    explained_variance = pca.explained_variance_ratio_
 
     plt.figure(figsize=(8, 6))
     plt.scatter(X_pca[:, 0], X_pca[:, 1], color='b', alpha=0.5)
-    plt.title('PCA Results')
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
+    plt.title('PCA Results: PC1 vs PC2')
+    plt.xlabel(f'Principal Component 1 ({explained_variance[0]*100:.2f}% Variance)')
+    plt.ylabel(f'Principal Component 2 ({explained_variance[1]*100:.2f}% Variance)')
     plt.grid(True)
-    plt.savefig('figures/pca_results.png')
+    plt.savefig('figures/pca_1_vs_2.png')
     plt.show()
 
 
-def plot_kmeans_results(X_pca, labels_kmeans):
+def plot_kmeans_combinations(X_pca, labels_kmeans):
     if not os.path.exists('figures'):
         os.makedirs('figures')
 
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X_pca[:, 0], X_pca[:, 1], c=labels_kmeans, cmap='viridis')
-    plt.title('K-means Clustering Results')
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
-    plt.grid(True)
-    plt.savefig('figures/kmeans_results.png')
-    plt.show()
+    combinations = [(0, 1), (0, 2), (1, 2)]
+    for (i, j) in combinations:
+        plt.figure(figsize=(8, 6))
+        plt.scatter(X_pca[:, i], X_pca[:, j], c=labels_kmeans, cmap='viridis')
+        plt.title(f'K-means Clustering: PC{i+1} vs PC{j+1}')
+        plt.xlabel(f'Principal Component {i+1}')
+        plt.ylabel(f'Principal Component {j+1}')
+        plt.grid(True)
+        plt.savefig(f'figures/kmeans_{i+1}_vs_{j+1}.png')
+        plt.show()
 
 
 def determine_num_clusters(X):
@@ -195,6 +210,7 @@ def determine_num_clusters(X):
     plt.savefig('figures/elbow_method.png')
     plt.show()
 
+
     knee_locator = KneeLocator(K, distortions, curve='convex', direction='decreasing')
     num_clusters = knee_locator.elbow
     click.echo(f"\nOptimal number of clusters determined using the elbow method: {num_clusters}")
@@ -202,11 +218,11 @@ def determine_num_clusters(X):
 
 
 def save_pca_results(X_pca, pca, columns):
-    pca_df = pd.DataFrame(X_pca, columns=['PC1', 'PC2'])
+    pca_df = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])])
     pca_df.to_excel('pca_transformed_data.xlsx', index=False)
     click.echo("\nPCA-transformed data saved to 'pca_transformed_data.xlsx'.")
 
-    loadings = pd.DataFrame(pca.components_.T, columns=['PC1', 'PC2'], index=columns)
+    loadings = pd.DataFrame(pca.components_.T, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])], index=columns)
     loadings.to_excel('pca_loadings.xlsx')
     click.echo("PCA loadings saved to 'pca_loadings.xlsx'.")
 
