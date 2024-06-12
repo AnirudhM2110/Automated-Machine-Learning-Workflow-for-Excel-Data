@@ -5,9 +5,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
 from kneed import KneeLocator
-
+import seaborn as sns
 
 @click.command()
 def main():
@@ -53,8 +53,7 @@ def main():
     labels = df.iloc[:, label_columns] if label_columns else None
 
     if not check_numeric_columns(X):
-        click.echo(
-            "Non-numeric data detected in the selected columns for analysis. Please select only numeric columns.")
+        click.echo("Non-numeric data detected in the selected columns for analysis. Please select only numeric columns.")
         return
 
     X = preprocess_data(X)
@@ -75,25 +74,49 @@ def main():
     click.echo("\nPlease close the plot window to proceed.")
     plot_pca_results(X_pca, pca)
 
-    num_clusters_choice = click.prompt(
-        "\nChoose how to determine the number of clusters:\n1: User input\n2: Elbow method\nChoose an option", type=int)
-    if num_clusters_choice == 1:
-        num_clusters = click.prompt("Enter the number of clusters for K-means", type=int)
-    elif num_clusters_choice == 2:
-        num_clusters = determine_num_clusters(X)
-    else:
-        click.echo("Invalid choice. Defaulting to 3 clusters.")
-        num_clusters = 3
+    clustering_method = click.prompt(
+        "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\nChoose an option", type=int)
 
-    if X.shape[0] > 1:
-        kmeans = KMeans(n_clusters=num_clusters)
-        kmeans.fit(X_pca)
-        labels_kmeans = kmeans.labels_
+    if clustering_method == 1:
+        num_clusters_choice = click.prompt(
+            "\nChoose how to determine the number of clusters for K-means:\n1: User input\n2: Elbow method\nChoose an option", type=int)
+        if num_clusters_choice == 1:
+            num_clusters = click.prompt("Enter the number of clusters for K-means", type=int)
+        elif num_clusters_choice == 2:
+            num_clusters = determine_num_clusters(X_pca)
+        else:
+            click.echo("Invalid choice. Defaulting to 3 clusters.")
+            num_clusters = 3
 
-        click.echo("\nPlease close the plot window to proceed.")
-        plot_kmeans_combinations(X_pca, labels_kmeans)
+        if X_pca.shape[0] > 1:
+            kmeans = KMeans(n_clusters=num_clusters)
+            kmeans.fit(X_pca)
+            labels_clustering = kmeans.labels_
+
+            click.echo("\nPlease close the plot window to proceed.")
+            plot_clustering_combinations(X_pca, labels_clustering, "K-means")
+        else:
+            click.echo("\nNot enough samples for clustering.")
+    elif clustering_method == 2:
+        eps = click.prompt("Enter the epsilon value for DBSCAN", type=float)
+        min_samples = click.prompt("Enter the minimum number of samples for DBSCAN", type=int)
+
+        if X_pca.shape[0] > 1:
+            dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+            labels_clustering = dbscan.fit_predict(X_pca)
+
+            num_clusters = len(set(labels_clustering)) - (1 if -1 in labels_clustering else 0)
+            click.echo(f"\nNumber of clusters obtained from DBSCAN: {num_clusters}")
+            click.echo(f"\nOutliers are represented by -1 in the cluster column of clustering_results.xlsx ")
+
+            click.echo("\nPlease close the plot window to proceed.")
+            plot_clustering_combinations(X_pca, labels_clustering, "DBSCAN")
+        else:
+            click.echo("\nNot enough samples for clustering.")
     else:
-        click.echo("\nNot enough samples for clustering.")
+        click.echo("Invalid choice.")
+
+    save_clustering_results(df, labels_clustering, X_pca)
 
 
 def display_columns(df):
@@ -174,28 +197,34 @@ def plot_pca_results(X_pca, pca):
     plt.show()
 
 
-def plot_kmeans_combinations(X_pca, labels_kmeans):
+def plot_clustering_combinations(X_pca, labels_clustering, method_name):
     if not os.path.exists('figures'):
         os.makedirs('figures')
+
+    unique_labels = np.unique(labels_clustering)
+    palette = sns.color_palette("viridis", as_cmap=True)
 
     combinations = [(0, 1), (0, 2), (1, 2)]
     for (i, j) in combinations:
         plt.figure(figsize=(8, 6))
-        plt.scatter(X_pca[:, i], X_pca[:, j], c=labels_kmeans, cmap='viridis')
-        plt.title(f'K-means Clustering: PC{i+1} vs PC{j+1}')
+        scatter = plt.scatter(X_pca[:, i], X_pca[:, j], c=labels_clustering, cmap=palette)
+        plt.title(f'{method_name} Clustering: PC{i+1} vs PC{j+1}')
         plt.xlabel(f'Principal Component {i+1}')
         plt.ylabel(f'Principal Component {j+1}')
         plt.grid(True)
-        plt.savefig(f'figures/kmeans_{i+1}_vs_{j+1}.png')
+        handles, labels = scatter.legend_elements()
+        plt.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.savefig(f'figures/{method_name.lower()}_{i+1}_vs_{j+1}.png')
         plt.show()
 
 
-def determine_num_clusters(X):
+def determine_num_clusters(X_pca):
     distortions = []
     K = range(1, 11)
     for k in K:
         kmeans = KMeans(n_clusters=k, algorithm='lloyd')
-        kmeans.fit(X)
+        kmeans.fit(X_pca)
         distortions.append(kmeans.inertia_)
 
     if not os.path.exists('figures'):
@@ -209,7 +238,6 @@ def determine_num_clusters(X):
     plt.grid(True)
     plt.savefig('figures/elbow_method.png')
     plt.show()
-
 
     knee_locator = KneeLocator(K, distortions, curve='convex', direction='decreasing')
     num_clusters = knee_locator.elbow
@@ -225,6 +253,16 @@ def save_pca_results(X_pca, pca, columns):
     loadings = pd.DataFrame(pca.components_.T, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])], index=columns)
     loadings.to_excel('pca_loadings.xlsx')
     click.echo("PCA loadings saved to 'pca_loadings.xlsx'.")
+
+
+def save_clustering_results(df, labels_clustering, X_pca):
+    clustering_results = pd.DataFrame(df.iloc[:, 0])
+    clustering_results['Cluster'] = labels_clustering
+    pca_df = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])])
+    clustering_results = pd.concat([clustering_results, pca_df], axis=1)
+
+    clustering_results.to_excel('clustering_results.xlsx', index=False)
+    click.echo("\nClustering results saved to 'clustering_results.xlsx'.")
 
 
 if __name__ == "__main__":
