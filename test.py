@@ -67,7 +67,7 @@ def main():
     else:
         click.echo("\nNo label columns selected.")
 
-    pca, X_pca, num_components = select_pca_components(X)
+    pca, X_pca = apply_pca(X, n_components=5)
 
     save_pca_results(X_pca, pca, X.columns)
 
@@ -76,6 +76,8 @@ def main():
 
     clustering_method = click.prompt(
         "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\nChoose an option", type=int)
+
+    labels_clustering = None  # Initialize labels_clustering
 
     if clustering_method == 1:
         num_clusters_choice = click.prompt(
@@ -98,25 +100,12 @@ def main():
         else:
             click.echo("\nNot enough samples for clustering.")
     elif clustering_method == 2:
-        eps = click.prompt("Enter the epsilon value for DBSCAN", type=float)
-        min_samples = click.prompt("Enter the minimum number of samples for DBSCAN", type=int)
-
-        if X_pca.shape[0] > 1:
-            dbscan = DBSCAN(eps=eps, min_samples=min_samples)
-            labels_clustering = dbscan.fit_predict(X_pca)
-
-            num_clusters = len(set(labels_clustering)) - (1 if -1 in labels_clustering else 0)
-            click.echo(f"\nNumber of clusters obtained from DBSCAN: {num_clusters}")
-            click.echo(f"\nOutliers are represented by -1 in the cluster column of clustering_results.xlsx ")
-
-            click.echo("\nPlease close the plot window to proceed.")
-            plot_clustering_combinations(X_pca, labels_clustering, "DBSCAN")
-        else:
-            click.echo("\nNot enough samples for clustering.")
+        labels_clustering = interactive_dbscan_clustering(X_pca)
     else:
         click.echo("Invalid choice.")
 
-    save_clustering_results(df, labels_clustering, X_pca)
+    if labels_clustering is not None:
+        save_clustering_results(df, labels_clustering)
 
 
 def display_columns(df):
@@ -169,16 +158,12 @@ def preprocess_data(X):
         return X
 
 
-def select_pca_components(X, variance_threshold=0.9):
-    pca = PCA().fit(X)
-    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
-    num_components = np.argmax(cumulative_variance >= variance_threshold) + 1
-
-    click.echo(f"\nNumber of PCA components selected: {num_components}")
-    pca = PCA(n_components=num_components)
+def apply_pca(X, n_components=5):
+    pca = PCA(n_components=n_components)
     X_pca = pca.fit_transform(X)
+    click.echo(f"\nPCA applied with {n_components} components.")
 
-    return pca, X_pca, num_components
+    return pca, X_pca
 
 
 def plot_pca_results(X_pca, pca):
@@ -241,8 +226,32 @@ def determine_num_clusters(X_pca):
 
     knee_locator = KneeLocator(K, distortions, curve='convex', direction='decreasing')
     num_clusters = knee_locator.elbow
-    click.echo(f"\nOptimal number of clusters determined using the elbow method: {num_clusters}")
+    click.echo(f"\nOptimal number of clusters determined by elbow method: {num_clusters}")
     return num_clusters
+
+
+def interactive_dbscan_clustering(X_pca):
+    while True:
+        eps = click.prompt("Enter the epsilon value for DBSCAN (suggested range: 0.1 to 10)", type=float)
+        min_samples = click.prompt("Enter the minimum number of samples for DBSCAN (suggested range: 1 to 10)", type=int)
+
+        if X_pca.shape[0] > 1:
+            dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+            labels_clustering = dbscan.fit_predict(X_pca)
+
+            num_clusters = len(set(labels_clustering)) - (1 if -1 in labels_clustering else 0)
+            click.echo(f"\nNumber of clusters obtained from DBSCAN: {num_clusters}")
+            click.echo(f"\nOutliers are represented by -1 in the cluster column of clustering_results.xlsx ")
+
+            click.echo("\nPlease close the plot window to proceed.")
+            plot_clustering_combinations(X_pca, labels_clustering, "DBSCAN")
+
+            proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
+            if proceed.lower() == 'yes':
+                return labels_clustering  # Return the labels_clustering to save the results
+        else:
+            click.echo("\nNot enough samples for clustering.")
+            break
 
 
 def save_pca_results(X_pca, pca, columns):
@@ -255,11 +264,9 @@ def save_pca_results(X_pca, pca, columns):
     click.echo("PCA loadings saved to 'pca_loadings.xlsx'.")
 
 
-def save_clustering_results(df, labels_clustering, X_pca):
+def save_clustering_results(df, labels_clustering):
     clustering_results = pd.DataFrame(df.iloc[:, 0])
     clustering_results['Cluster'] = labels_clustering
-    pca_df = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])])
-    clustering_results = pd.concat([clustering_results, pca_df], axis=1)
 
     clustering_results.to_excel('clustering_results.xlsx', index=False)
     click.echo("\nClustering results saved to 'clustering_results.xlsx'.")
