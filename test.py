@@ -5,9 +5,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans, DBSCAN
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 from kneed import KneeLocator
 import seaborn as sns
+
+
 
 @click.command()
 def main():
@@ -53,7 +55,8 @@ def main():
     labels = df.iloc[:, label_columns] if label_columns else None
 
     if not check_numeric_columns(X):
-        click.echo("Non-numeric data detected in the selected columns for analysis. Please select only numeric columns.")
+        click.echo(
+            "Non-numeric data detected in the selected columns for analysis. Please select only numeric columns.")
         return
 
     X = preprocess_data(X)
@@ -75,32 +78,17 @@ def main():
     plot_pca_results(X_pca, pca)
 
     clustering_method = click.prompt(
-        "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\nChoose an option", type=int)
+        "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\n3: Hierarchical Clustering\nChoose an option",
+        type=int)
 
     labels_clustering = None  # Initialize labels_clustering
 
     if clustering_method == 1:
-        num_clusters_choice = click.prompt(
-            "\nChoose how to determine the number of clusters for K-means:\n1: User input\n2: Elbow method\nChoose an option", type=int)
-        if num_clusters_choice == 1:
-            num_clusters = click.prompt("Enter the number of clusters for K-means", type=int)
-        elif num_clusters_choice == 2:
-            num_clusters = determine_num_clusters(X_pca)
-        else:
-            click.echo("Invalid choice. Defaulting to 3 clusters.")
-            num_clusters = 3
-
-        if X_pca.shape[0] > 1:
-            kmeans = KMeans(n_clusters=num_clusters)
-            kmeans.fit(X_pca)
-            labels_clustering = kmeans.labels_
-
-            click.echo("\nPlease close the plot window to proceed.")
-            plot_clustering_combinations(X_pca, labels_clustering, "K-means")
-        else:
-            click.echo("\nNot enough samples for clustering.")
+        labels_clustering = interactive_kmeans_clustering(X_pca)
     elif clustering_method == 2:
         labels_clustering = interactive_dbscan_clustering(X_pca)
+    elif clustering_method == 3:
+        labels_clustering = interactive_hierarchical_clustering(X_pca)
     else:
         click.echo("Invalid choice.")
 
@@ -115,12 +103,27 @@ def display_columns(df):
 
 
 def get_column_selections(num_columns):
-    ignore_columns = click.prompt("Enter column numbers to ignore (space separated)", type=str)
-    label_columns = click.prompt("Enter column numbers that is label (ignore if doing unsupervised learning)", type=str,
-                                 default='')
+    ignore_columns_input = click.prompt(
+        "Enter column numbers to ignore (space separated, type 'none' to include all columns)", type=str)
 
-    ignore_columns = [int(i) - 1 for i in ignore_columns.split(' ') if i.isdigit() and 1 <= int(i) <= num_columns]
-    label_columns = [int(i) - 1 for i in label_columns.split(' ') if i.isdigit() and 1 <= int(i) <= num_columns]
+    if ignore_columns_input.lower() == 'none':
+        ignore_columns = []
+    else:
+        ignore_columns = [int(i) - 1 for i in ignore_columns_input.split(' ') if i.isdigit()]
+
+        invalid_ignore_columns = [i for i in ignore_columns if i < 0 or i >= num_columns]
+        if invalid_ignore_columns:
+            click.echo("Error, choice not in sheet.")
+            return get_column_selections(num_columns)
+
+    label_columns_input = click.prompt(
+        "Enter column numbers that is label (ignore if doing unsupervised learning)", type=str, default='')
+    label_columns = [int(i) - 1 for i in label_columns_input.split(' ') if i.isdigit()]
+
+    invalid_label_columns = [i for i in label_columns if i < 0 or i >= num_columns]
+    if invalid_label_columns:
+        click.echo("Error, choice not in sheet.")
+        return get_column_selections(num_columns)
 
     return ignore_columns, label_columns
 
@@ -175,8 +178,8 @@ def plot_pca_results(X_pca, pca):
     plt.figure(figsize=(8, 6))
     plt.scatter(X_pca[:, 0], X_pca[:, 1], color='b', alpha=0.5)
     plt.title('PCA Results: PC1 vs PC2')
-    plt.xlabel(f'Principal Component 1 ({explained_variance[0]*100:.2f}% Variance)')
-    plt.ylabel(f'Principal Component 2 ({explained_variance[1]*100:.2f}% Variance)')
+    plt.xlabel(f'Principal Component 1 ({explained_variance[0] * 100:.2f}% Variance)')
+    plt.ylabel(f'Principal Component 2 ({explained_variance[1] * 100:.2f}% Variance)')
     plt.grid(True)
     plt.savefig('figures/pca_1_vs_2.png')
     plt.show()
@@ -193,14 +196,14 @@ def plot_clustering_combinations(X_pca, labels_clustering, method_name):
     for (i, j) in combinations:
         plt.figure(figsize=(8, 6))
         scatter = plt.scatter(X_pca[:, i], X_pca[:, j], c=labels_clustering, cmap=palette)
-        plt.title(f'{method_name} Clustering: PC{i+1} vs PC{j+1}')
-        plt.xlabel(f'Principal Component {i+1}')
-        plt.ylabel(f'Principal Component {j+1}')
+        plt.title(f'{method_name} Clustering: PC{i + 1} vs PC{j + 1}')
+        plt.xlabel(f'Principal Component {i + 1}')
+        plt.ylabel(f'Principal Component {j + 1}')
         plt.grid(True)
         handles, labels = scatter.legend_elements()
         plt.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
-        plt.savefig(f'figures/{method_name.lower()}_{i+1}_vs_{j+1}.png')
+        plt.savefig(f'figures/{method_name.lower()}_{i + 1}_vs_{j + 1}.png')
         plt.show()
 
 
@@ -233,7 +236,7 @@ def determine_num_clusters(X_pca):
 def interactive_dbscan_clustering(X_pca):
     while True:
         eps = click.prompt("Enter the epsilon value for DBSCAN (suggested range: 0.1 to 10)", type=float)
-        min_samples = click.prompt("Enter the minimum number of samples for DBSCAN (suggested range: 1 to 10)", type=int)
+        min_samples = click.prompt("Enter the minimum number of samples for DBSCAN", type=int)
 
         if X_pca.shape[0] > 1:
             dbscan = DBSCAN(eps=eps, min_samples=min_samples)
@@ -254,12 +257,62 @@ def interactive_dbscan_clustering(X_pca):
             break
 
 
+def interactive_kmeans_clustering(X_pca):
+    while True:
+        num_clusters_choice = click.prompt(
+            "\nChoose how to determine the number of clusters for K-means:\n1: User input\n2: Elbow method\nChoose an option",
+            type=int)
+        if num_clusters_choice == 1:
+            num_clusters = click.prompt("Enter the number of clusters for K-means", type=int)
+        elif num_clusters_choice == 2:
+            num_clusters = determine_num_clusters(X_pca)
+        else:
+            click.echo("Invalid choice. Defaulting to 3 clusters.")
+            num_clusters = 3
+
+        if X_pca.shape[0] > 1:
+            kmeans = KMeans(n_clusters=num_clusters)
+            kmeans.fit(X_pca)
+            labels_clustering = kmeans.labels_
+
+            click.echo("\nPlease close the plot window to proceed.")
+            plot_clustering_combinations(X_pca, labels_clustering, "K-means")
+
+            proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
+            if proceed.lower() == 'yes':
+                return labels_clustering  # Return the labels_clustering to save the results
+        else:
+            click.echo("\nNot enough samples for clustering.")
+            break
+
+
+def interactive_hierarchical_clustering(X_pca):
+    while True:
+        num_clusters = click.prompt("Enter the number of clusters for Hierarchical Clustering", type=int)
+
+        if X_pca.shape[0] > 1:
+            hierarchical = AgglomerativeClustering(n_clusters=num_clusters)
+            labels_clustering = hierarchical.fit_predict(X_pca)
+
+            click.echo("\nPlease close the plot window to proceed.")
+            plot_clustering_combinations(X_pca, labels_clustering, "Hierarchical Clustering")
+
+
+
+            proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
+            if proceed.lower() == 'yes':
+                return labels_clustering
+        else:
+            click.echo("\nNot enough samples for clustering.")
+            break
+
+
 def save_pca_results(X_pca, pca, columns):
-    pca_df = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])])
+    pca_df = pd.DataFrame(X_pca, columns=[f'PC{i + 1}' for i in range(X_pca.shape[1])])
     pca_df.to_excel('pca_transformed_data.xlsx', index=False)
     click.echo("\nPCA-transformed data saved to 'pca_transformed_data.xlsx'.")
 
-    loadings = pd.DataFrame(pca.components_.T, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])], index=columns)
+    loadings = pd.DataFrame(pca.components_.T, columns=[f'PC{i + 1}' for i in range(X_pca.shape[1])], index=columns)
     loadings.to_excel('pca_loadings.xlsx')
     click.echo("PCA loadings saved to 'pca_loadings.xlsx'.")
 
