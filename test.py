@@ -8,7 +8,8 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 from kneed import KneeLocator
 import seaborn as sns
-
+from matplotlib.patches import Ellipse
+import matplotlib.transforms as transforms
 
 
 @click.command()
@@ -175,14 +176,22 @@ def plot_pca_results(X_pca, pca):
 
     explained_variance = pca.explained_variance_ratio_
 
-    plt.figure(figsize=(8, 6))
+    max_limit = max(np.max(X_pca[:, 0]), np.max(X_pca[:, 1])) + 1
+
+    plt.figure(figsize=(8, 8))
     plt.scatter(X_pca[:, 0], X_pca[:, 1], color='b', alpha=0.5)
-    plt.title('PCA Results: PC1 vs PC2')
-    plt.xlabel(f'Principal Component 1 ({explained_variance[0] * 100:.2f}% Variance)')
-    plt.ylabel(f'Principal Component 2 ({explained_variance[1] * 100:.2f}% Variance)')
-    plt.grid(True)
+    plt.title('PCA Results: PC1 vs PC2',fontsize=20)
+    plt.xlabel(f'Principal Component 1 ({explained_variance[0] * 100:.2f}% Variance)',fontsize=16)
+    plt.ylabel(f'Principal Component 2 ({explained_variance[1] * 100:.2f}% Variance)',fontsize=16)
+    plt.grid(False)
+    plt.xlim(-max_limit, max_limit)
+    plt.ylim(-max_limit, max_limit)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
     plt.savefig('figures/pca_1_vs_2.png')
     plt.show()
+
 
 
 def plot_clustering_combinations(X_pca, labels_clustering, method_name):
@@ -194,17 +203,78 @@ def plot_clustering_combinations(X_pca, labels_clustering, method_name):
 
     combinations = [(0, 1), (0, 2), (1, 2)]
     for (i, j) in combinations:
-        plt.figure(figsize=(8, 6))
+        max_limit = max(np.max(X_pca[:, i]), np.max(X_pca[:, j])) + 1
+
+        plt.figure(figsize=(8, 8))
         scatter = plt.scatter(X_pca[:, i], X_pca[:, j], c=labels_clustering, cmap=palette)
-        plt.title(f'{method_name} Clustering: PC{i + 1} vs PC{j + 1}')
-        plt.xlabel(f'Principal Component {i + 1}')
-        plt.ylabel(f'Principal Component {j + 1}')
-        plt.grid(True)
+        plt.title(f'{method_name} Clustering: PC{i + 1} vs PC{j + 1}',fontsize=20)
+        plt.xlabel(f'Principal Component {i + 1}',fontsize=16)
+        plt.ylabel(f'Principal Component {j + 1}',fontsize=16)
+        plt.grid(False)
         handles, labels = scatter.legend_elements()
-        plt.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left',fontsize=16,title_fontsize=18)
+        plt.xlim(-max_limit, max_limit)
+        plt.ylim(-max_limit, max_limit)
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14)
+
+        for label in unique_labels:
+            if label != -1:  # Skip outliers
+                cluster_data = X_pca[labels_clustering == label]
+                if len(cluster_data) > 1:
+                    confidence_ellipse(cluster_data[:, i], cluster_data[:, j], plt.gca(),
+                                       edgecolor=plt.cm.viridis(label / len(unique_labels)),
+                                       facecolor=plt.cm.viridis(label / len(unique_labels)), alpha=0.2)
+
         plt.tight_layout()
         plt.savefig(f'figures/{method_name.lower()}_{i + 1}_vs_{j + 1}.png')
         plt.show()
+
+
+
+def confidence_ellipse(x, y, ax, n_std=2.0, facecolor='none', edgecolor='blue', alpha=0.2, **kwargs):
+    """
+    Create a plot of the covariance confidence ellipse of *x* and *y*.
+
+    Parameters
+    ----------
+    x, y : array-like, shape (n, )
+        Input data.
+    ax : matplotlib.axes.Axes
+        The axes object to draw the ellipse into.
+    n_std : float
+        The number of standard deviations to determine the ellipse's radii.
+    facecolor : str
+        The color of the ellipse.
+    edgecolor : str
+        The color of the ellipse edge.
+    alpha : float
+        The transparency level for the fill color.
+    **kwargs : `~matplotlib.patches.Patch` properties
+    """
+    if x.size != y.size:
+        raise ValueError("x and y must be the same size")
+
+    cov = np.cov(x, y)
+    pearson = cov[0, 1] / np.sqrt(cov[0, 0] * cov[1, 1])
+    ell_radius_x = np.sqrt(1 + pearson)
+    ell_radius_y = np.sqrt(1 - pearson)
+    ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2, facecolor=facecolor, edgecolor=edgecolor,
+                      alpha=alpha, **kwargs)
+
+    scale_x = np.sqrt(cov[0, 0]) * 1.3*n_std
+    scale_y = np.sqrt(cov[1, 1]) * 1.3*n_std
+    mean_x = np.mean(x)
+    mean_y = np.mean(y)
+
+    transf = transforms.Affine2D() \
+        .rotate_deg(45) \
+        .scale(scale_x, scale_y) \
+        .translate(mean_x, mean_y)
+
+    ellipse.set_transform(transf + ax.transData)
+    return ax.add_patch(ellipse)
 
 
 def determine_num_clusters(X_pca):
@@ -295,9 +365,7 @@ def interactive_hierarchical_clustering(X_pca):
             labels_clustering = hierarchical.fit_predict(X_pca)
 
             click.echo("\nPlease close the plot window to proceed.")
-            plot_clustering_combinations(X_pca, labels_clustering, "Hierarchical Clustering")
-
-
+            plot_clustering_combinations(X_pca, labels_clustering, "Hierarchical ")
 
             proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
             if proceed.lower() == 'yes':
