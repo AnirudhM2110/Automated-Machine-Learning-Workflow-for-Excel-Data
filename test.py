@@ -10,6 +10,15 @@ from kneed import KneeLocator
 import seaborn as sns
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from xgboost import XGBClassifier
+from sklearn.svm import SVC
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.cross_decomposition import PLSRegression
+
+
 
 
 @click.command()
@@ -71,31 +80,44 @@ def main():
     else:
         click.echo("\nNo label columns selected.")
 
-    pca, X_pca = apply_pca(X, n_components=5)
-
-    save_pca_results(X_pca, pca, X.columns)
-
-    click.echo("\nPlease close the plot window to proceed.")
-    plot_pca_results(X_pca, pca)
-
-    clustering_method = click.prompt(
-        "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\n3: Hierarchical Clustering\nChoose an option",
+    analysis_type = click.prompt(
+        "\nChoose the type of analysis:\n1: Unsupervised Learning\n2: Supervised Learning\nChoose an option",
         type=int)
 
-    labels_clustering = None  # Initialize labels_clustering
+    if analysis_type == 1:
+        # Apply PCA
+        pca, X_pca = apply_pca(X, n_components=5)
+        save_pca_results(X_pca, pca, X.columns)
+        click.echo("\nPlease close the plot window to proceed.")
+        plot_pca_results(X_pca, pca)
 
-    if clustering_method == 1:
-        labels_clustering = interactive_kmeans_clustering(X_pca)
-    elif clustering_method == 2:
-        labels_clustering = interactive_dbscan_clustering(X_pca)
-    elif clustering_method == 3:
-        labels_clustering = interactive_hierarchical_clustering(X_pca)
+        # Run the original unsupervised clustering code
+        clustering_method = click.prompt(
+            "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\n3: Hierarchical Clustering\nChoose an option",
+            type=int)
+
+        labels_clustering = None  # Initialize labels_clustering
+
+        if clustering_method == 1:
+            labels_clustering = interactive_kmeans_clustering(X_pca)
+        elif clustering_method == 2:
+            labels_clustering = interactive_dbscan_clustering(X_pca)
+        elif clustering_method == 3:
+            labels_clustering = interactive_hierarchical_clustering(X_pca)
+        else:
+            click.echo("Invalid choice.")
+
+        if labels_clustering is not None:
+            save_clustering_results(df, labels_clustering)
+    elif analysis_type == 2:
+        # Run the supervised learning code with Random Forest
+        if labels is None or labels.empty:
+            click.echo("Supervised learning requires label columns. Please select label columns.")
+            return
+        supervised_learning(X, labels)
     else:
         click.echo("Invalid choice.")
-
-    if labels_clustering is not None:
-        save_clustering_results(df, labels_clustering)
-
+        return
 
 def display_columns(df):
     click.echo("Columns in the dataset:")
@@ -392,6 +414,87 @@ def save_clustering_results(df, labels_clustering):
     clustering_results.to_excel('clustering_results.xlsx', index=False)
     click.echo("\nClustering results saved to 'clustering_results.xlsx'.")
 
+
+def supervised_learning(X, y):
+    # Ensure y is a 1D array
+    y = y.values.ravel() if hasattr(y, 'values') else np.ravel(y)
+
+    # Save the original minimum value of y
+    y_min = np.min(y)
+
+    # Adjust target labels to start from 0
+    y = y - y_min
+
+    # Split the data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    # Prompt the user to choose between Random Forest, XGBoost, SVM, and PLS-DA
+    model_choice = click.prompt(
+        "\nChoose the supervised learning algorithm:\n1: Random Forest\n2: XGBoost\n3: SVM\n4: PLS-DA\nChoose an option",
+        type=int)
+
+    if model_choice == 1:
+        click.echo("You selected Random Forest.")
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+    elif model_choice == 2:
+        click.echo("You selected XGBoost.")
+        model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=42)
+    elif model_choice == 3:
+        click.echo("You selected SVM.")
+        model = SVC(kernel='rbf', random_state=42)
+    elif model_choice == 4:
+        click.echo("You selected PLS-DA.")
+        # PLS-DA specific code: Use LabelBinarizer to convert y_train into a binary matrix
+        lb = LabelBinarizer()
+        Y_train_bin = lb.fit_transform(y_train)
+
+        # Initialize and train PLS-DA
+        n_components = 2  # You can adjust this based on your dataset
+        model = PLSRegression(n_components=n_components)
+        model.fit(X_train, Y_train_bin)
+
+        # Make predictions
+        Y_pred_continuous = model.predict(X_test)
+        y_pred = np.argmax(Y_pred_continuous, axis=1)
+    else:
+        click.echo("Invalid choice. Defaulting to Random Forest.")
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+
+    if model_choice != 4:
+        # Fit the model for Random Forest, XGBoost, and SVM
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+
+    # Change the labels back to their original values
+    y_test = y_test + y_min
+    y_pred = y_pred + y_min
+
+    # Output the results
+    click.echo("\nSupervised Learning Results:")
+    click.echo("\nAccuracy: {:.2f}%".format(accuracy_score(y_test, y_pred) * 100))
+    click.echo("\nConfusion Matrix:")
+    cm = confusion_matrix(y_test, y_pred)
+    click.echo(cm)
+
+    # Plot confusion matrix
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=np.unique(y_test), yticklabels=np.unique(y_test))
+    plt.ylabel("Actual")
+    plt.xlabel("Predicted")
+    plt.title("Confusion Matrix")
+    plt.show()
+
+    click.echo("\nClassification Report:")
+    click.echo(classification_report(y_test, y_pred))
+
+    # Save the results
+    model_name = {1: 'random_forest', 2: 'xgboost', 3: 'svm', 4: 'pls_da'}.get(model_choice, 'random_forest')
+    results = pd.DataFrame({
+        'Actual': y_test,
+        'Predicted': y_pred
+    })
+    results.to_excel(f'{model_name}_results.xlsx', index=False)
+    click.echo(f"\nResults saved to '{model_name}_results.xlsx'.")
 
 if __name__ == "__main__":
     main()
