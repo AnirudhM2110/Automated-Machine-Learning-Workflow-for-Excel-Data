@@ -415,6 +415,32 @@ def save_clustering_results(df, labels_clustering):
     click.echo("\nClustering results saved to 'clustering_results.xlsx'.")
 
 
+import click
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.svm import SVC
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+import click
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.svm import SVC
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
 def supervised_learning(X, y):
     # Ensure y is a 1D array
     y = y.values.ravel() if hasattr(y, 'values') else np.ravel(y)
@@ -428,73 +454,102 @@ def supervised_learning(X, y):
     # Split the data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
+    # Store the original y_test for consistent results across iterations
+    y_test_orig = y_test.copy()
+
     # Prompt the user to choose between Random Forest, XGBoost, SVM, and PLS-DA
     model_choice = click.prompt(
         "\nChoose the supervised learning algorithm:\n1: Random Forest\n2: XGBoost\n3: SVM\n4: PLS-DA\nChoose an option",
         type=int)
 
-    if model_choice == 1:
-        click.echo("You selected Random Forest.")
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-    elif model_choice == 2:
-        click.echo("You selected XGBoost.")
-        model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=42)
-    elif model_choice == 3:
-        click.echo("You selected SVM.")
-        model = SVC(kernel='rbf', random_state=42)
-    elif model_choice == 4:
-        click.echo("You selected PLS-DA.")
-        # PLS-DA specific code: Use LabelBinarizer to convert y_train into a binary matrix
-        lb = LabelBinarizer()
-        Y_train_bin = lb.fit_transform(y_train)
+    satisfied = False
 
-        # Initialize and train PLS-DA
-        n_components = 2  # You can adjust this based on your dataset
-        model = PLSRegression(n_components=n_components)
-        model.fit(X_train, Y_train_bin)
+    while not satisfied:
+        if model_choice == 1:
+            click.echo("You selected Random Forest.")
+            # Prompt user for Random Forest hyperparameters
+            n_estimators = click.prompt("Enter number of trees (n_estimators)", type=int, default=100)
+            max_depth = click.prompt("Enter maximum depth of the trees (max_depth)", type=int, default=None)
+            model = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
 
-        # Make predictions
-        Y_pred_continuous = model.predict(X_test)
-        y_pred = np.argmax(Y_pred_continuous, axis=1)
-    else:
-        click.echo("Invalid choice. Defaulting to Random Forest.")
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        elif model_choice == 2:
+            click.echo("You selected XGBoost.")
+            # Prompt user for XGBoost hyperparameters
+            learning_rate = click.prompt("Enter learning rate (learning_rate)", type=float, default=0.1)
+            n_estimators = click.prompt("Enter number of trees (n_estimators)", type=int, default=100)
+            max_depth = click.prompt("Enter maximum depth of the trees (max_depth)", type=int, default=3)
+            model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', learning_rate=learning_rate,
+                                  n_estimators=n_estimators, max_depth=max_depth, random_state=42)
 
-    if model_choice != 4:
-        # Fit the model for Random Forest, XGBoost, and SVM
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        elif model_choice == 3:
+            click.echo("You selected SVM.")
+            # Prompt user for SVM hyperparameters
+            kernel = click.prompt("Enter kernel type (linear, rbf, poly, sigmoid)", type=str, default='rbf')
+            C = click.prompt("Enter regularization parameter (C)", type=float, default=1.0)
+            gamma = click.prompt("Enter kernel coefficient (gamma)", type=str, default='scale')
+            model = SVC(kernel=kernel, C=C, gamma=gamma, random_state=42)
 
-    # Change the labels back to their original values
-    y_test = y_test + y_min
-    y_pred = y_pred + y_min
+        elif model_choice == 4:
+            click.echo("You selected PLS-DA.")
+            # PLS-DA specific code: Use LabelBinarizer to convert y_train into a binary matrix
+            lb = LabelBinarizer()
+            Y_train_bin = lb.fit_transform(y_train)
 
-    # Output the results
-    click.echo("\nSupervised Learning Results:")
-    click.echo("\nAccuracy: {:.2f}%".format(accuracy_score(y_test, y_pred) * 100))
-    click.echo("\nConfusion Matrix:")
-    cm = confusion_matrix(y_test, y_pred)
-    click.echo(cm)
+            # Prompt user for PLS-DA hyperparameters
+            n_components = click.prompt("Enter number of components (n_components)", type=int, default=2)
+            model = PLSRegression(n_components=n_components)
+            model.fit(X_train, Y_train_bin)
 
-    # Plot confusion matrix
-    plt.figure(figsize=(6, 4))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=np.unique(y_test), yticklabels=np.unique(y_test))
-    plt.ylabel("Actual")
-    plt.xlabel("Predicted")
-    plt.title("Confusion Matrix")
-    plt.show()
+            # Make predictions
+            Y_pred_continuous = model.predict(X_test)
+            y_pred = np.argmax(Y_pred_continuous, axis=1)
+        else:
+            click.echo("Invalid choice. Defaulting to Random Forest.")
+            model = RandomForestClassifier(n_estimators=100, random_state=42)
 
-    click.echo("\nClassification Report:")
-    click.echo(classification_report(y_test, y_pred))
+        if model_choice != 4:
+            # Fit the model for Random Forest, XGBoost, and SVM
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+
+        # Restore original labels for evaluation
+        y_test_eval = y_test_orig + y_min
+        y_pred_eval = y_pred + y_min
+
+        # Output the results
+        click.echo("\nSupervised Learning Results:")
+        click.echo("\nAccuracy: {:.2f}%".format(accuracy_score(y_test_eval, y_pred_eval) * 100))
+        click.echo("\nConfusion Matrix:")
+        cm = confusion_matrix(y_test_eval, y_pred_eval)
+        click.echo(cm)
+
+        # Plot confusion matrix
+        plt.figure(figsize=(6, 4))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=np.unique(y_test_eval), yticklabels=np.unique(y_test_eval))
+        plt.ylabel("Actual")
+        plt.xlabel("Predicted")
+        plt.title("Confusion Matrix")
+        plt.show()
+
+        click.echo("\nClassification Report:")
+        click.echo(classification_report(y_test_eval, y_pred_eval, zero_division=0))
+
+        # Ask the user if they are satisfied with the results
+        satisfied = click.confirm("\nAre you satisfied with the results?", default=True)
+
+        if not satisfied:
+            click.echo("Let's adjust the hyperparameters and try again.")
 
     # Save the results
     model_name = {1: 'random_forest', 2: 'xgboost', 3: 'svm', 4: 'pls_da'}.get(model_choice, 'random_forest')
     results = pd.DataFrame({
-        'Actual': y_test,
-        'Predicted': y_pred
+        'Actual': y_test_eval,
+        'Predicted': y_pred_eval
     })
     results.to_excel(f'{model_name}_results.xlsx', index=False)
     click.echo(f"\nResults saved to '{model_name}_results.xlsx'.")
+
+
 
 if __name__ == "__main__":
     main()
