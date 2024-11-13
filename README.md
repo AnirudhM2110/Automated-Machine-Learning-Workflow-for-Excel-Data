@@ -110,7 +110,7 @@ Select the preprocessing method that suits your data.
 -   The script will allow you to tune hyperparameters, split the data into training and testing sets, and train the model.
 -   After training, the model's performance will be evaluated and displayed in terms of accuracy, confusion matrix, and a classification report.
 
-### 7. **Exporting Results**
+### 8. **Exporting Results**
 
 -   Once the analysis is complete, the results will be saved to new Excel files:
     -   PCA-transformed data: `pca_transformed_data.xlsx`
