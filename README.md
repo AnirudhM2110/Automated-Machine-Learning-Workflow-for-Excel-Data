@@ -68,8 +68,8 @@ Open your terminal or command-line interface:
  -  Clone the repository and enter the directory:
 
      ```bash
-    git clone https://github.com/AnirudhM2110/User-prompt-ML.git
-    cd User-prompt-ML
+    git clone https://github.com/AnirudhM2110/Automated-Machine-Learning-Workflow-for-Excel-Data.git
+    cd Automated-Machine-Learning-Workflow-for-Excel-Data
  - Install dependencies from the requirements.txt file:
       ```bash
     pip install -r requirements.txt
