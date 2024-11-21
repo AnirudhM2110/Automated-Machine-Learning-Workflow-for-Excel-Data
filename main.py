@@ -415,31 +415,7 @@ def save_clustering_results(df, labels_clustering):
     click.echo("\nClustering results saved to 'clustering_results.xlsx'.")
 
 
-import click
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from sklearn.svm import SVC
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import LabelBinarizer
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
-import click
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from sklearn.svm import SVC
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import LabelBinarizer
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
 def supervised_learning(X, y):
     # Ensure y is a 1D array
