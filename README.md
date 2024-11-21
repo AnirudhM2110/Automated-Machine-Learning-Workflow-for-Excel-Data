@@ -108,7 +108,7 @@ Select the preprocessing method that suits your data.
 
 -   If you select **supervised learning**, you will be prompted to choose a classification model (Random Forest, XGBoost, SVM, or PLS-DA).
 -   The script will allow you to tune hyperparameters, split the data into training and testing sets, and train the model.
--   After training, the model's performance will be evaluated and displayed in terms of accuracy, confusion matrix, and a classification report.
+-   After training, the model's performance will be evaluated and displayed in terms of accuracy, confusion matrix, and a classification report
 
 ### 8. **Exporting Results**
 
