@@ -19,8 +19,6 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.cross_decomposition import PLSRegression
 
 
-
-
 @click.command()
 def main():
     files = [f for f in os.listdir('.') if f.endswith('.xlsx')]
@@ -56,13 +54,18 @@ def main():
         sheet_name = sheet_names[0]
 
     df = pd.read_excel(file, sheet_name=sheet_name)
-    display_columns(df)
 
-    ignore_columns, label_columns = get_column_selections(len(df.columns))
+    # Always use the first column as label
+    labels = df.iloc[:, 0]
+    df_data = df.iloc[:, 1:]
 
-    x_columns = [i for i in range(len(df.columns)) if i not in ignore_columns and i not in label_columns]
-    X = df.iloc[:, x_columns]
-    labels = df.iloc[:, label_columns] if label_columns else None
+    display_columns(df_data)
+
+    ignore_columns, class_columns = get_column_selections(len(df_data.columns))
+
+    x_columns = [i for i in range(len(df_data.columns)) if i not in ignore_columns and i not in class_columns]
+    X = df_data.iloc[:, x_columns]
+    classes = df_data.iloc[:, class_columns] if class_columns else None
 
     if not check_numeric_columns(X):
         click.echo(
@@ -74,11 +77,11 @@ def main():
     click.echo("\nX-block Data :")
     click.echo(X)
 
-    if labels is not None:
-        click.echo("\nLabels :")
-        click.echo(labels)
+    if classes is not None:
+        click.echo("\nClass Data:")
+        click.echo(classes)
     else:
-        click.echo("\nNo label columns selected.")
+        click.echo("\nNo class columns selected.")
 
     analysis_type = click.prompt(
         "\nChoose the type of analysis:\n1: Unsupervised Learning\n2: Supervised Learning\nChoose an option",
@@ -87,43 +90,42 @@ def main():
     if analysis_type == 1:
         # Apply PCA
         pca, X_pca = apply_pca(X, n_components=5)
-        save_pca_results(X_pca, pca, X.columns)
+        save_pca_results(X_pca, pca, X.columns, labels)
         click.echo("\nPlease close the plot window to proceed.")
         plot_pca_results(X_pca, pca)
 
-        # Run the original unsupervised clustering code
+        # Run the unsupervised clustering code
         clustering_method = click.prompt(
             "\nChoose the clustering method:\n1: K-means\n2: DBSCAN\n3: Hierarchical Clustering\nChoose an option",
             type=int)
 
-        labels_clustering = None  # Initialize labels_clustering
+        cluster_labels = None
 
         if clustering_method == 1:
-            labels_clustering = interactive_kmeans_clustering(X_pca)
+            cluster_labels = interactive_kmeans_clustering(X_pca)
         elif clustering_method == 2:
-            labels_clustering = interactive_dbscan_clustering(X_pca)
+            cluster_labels = interactive_dbscan_clustering(X_pca)
         elif clustering_method == 3:
-            labels_clustering = interactive_hierarchical_clustering(X_pca)
+            cluster_labels = interactive_hierarchical_clustering(X_pca)
         else:
             click.echo("Invalid choice.")
 
-        if labels_clustering is not None:
-            save_clustering_results(df, labels_clustering)
+        if cluster_labels is not None:
+            save_clustering_results(labels, cluster_labels)
     elif analysis_type == 2:
-        # Run the supervised learning code with Random Forest
-        if labels is None or labels.empty:
-            click.echo("Supervised learning requires label columns. Please select label columns.")
+        if classes is None or classes.empty:
+            click.echo("Supervised learning requires class columns. Please select class columns.")
             return
-        supervised_learning(X, labels)
+        supervised_learning(X, classes, labels)
     else:
         click.echo("Invalid choice.")
         return
 
+
 def display_columns(df):
-    click.echo("Columns in the dataset:")
+    click.echo("\nAvailable columns for analysis (The first column is automatically assigned as label):")
     for i, col in enumerate(df.columns, start=1):
         click.echo(f"{i}: {col}")
-
 
 def get_column_selections(num_columns):
     ignore_columns_input = click.prompt(
@@ -139,16 +141,16 @@ def get_column_selections(num_columns):
             click.echo("Error, choice not in sheet.")
             return get_column_selections(num_columns)
 
-    label_columns_input = click.prompt(
-        "Enter column numbers that is label (ignore if doing unsupervised learning)", type=str, default='')
-    label_columns = [int(i) - 1 for i in label_columns_input.split(' ') if i.isdigit()]
+    class_columns_input = click.prompt(
+        "Enter column numbers for class/target variables (ignore if doing unsupervised learning)", type=str, default='')
+    class_columns = [int(i) - 1 for i in class_columns_input.split(' ') if i.isdigit()]
 
-    invalid_label_columns = [i for i in label_columns if i < 0 or i >= num_columns]
-    if invalid_label_columns:
+    invalid_class_columns = [i for i in class_columns if i < 0 or i >= num_columns]
+    if invalid_class_columns:
         click.echo("Error, choice not in sheet.")
         return get_column_selections(num_columns)
 
-    return ignore_columns, label_columns
+    return ignore_columns, class_columns
 
 
 def check_numeric_columns(X):
@@ -220,7 +222,9 @@ def plot_clustering_combinations(X_pca, labels_clustering, method_name):
     if not os.path.exists('figures'):
         os.makedirs('figures')
 
-    unique_labels = np.unique(labels_clustering)
+    # Add 1 to labels to start from 1 instead of 0 (except for DBSCAN outliers which are -1)
+    plot_labels = np.where(labels_clustering == -1, -1, labels_clustering + 1)
+    unique_labels = np.unique(plot_labels)
     palette = sns.color_palette("viridis", as_cmap=True)
 
     combinations = [(0, 1), (0, 2), (1, 2)]
@@ -228,13 +232,20 @@ def plot_clustering_combinations(X_pca, labels_clustering, method_name):
         max_limit = max(np.max(X_pca[:, i]), np.max(X_pca[:, j])) + 1
 
         plt.figure(figsize=(8, 8))
-        scatter = plt.scatter(X_pca[:, i], X_pca[:, j], c=labels_clustering, cmap=palette)
+        scatter = plt.scatter(X_pca[:, i], X_pca[:, j], c=plot_labels, cmap=palette)
         plt.title(f'{method_name} Clustering: PC{i + 1} vs PC{j + 1}',fontsize=20)
         plt.xlabel(f'Principal Component {i + 1}',fontsize=16)
         plt.ylabel(f'Principal Component {j + 1}',fontsize=16)
         plt.grid(False)
-        handles, labels = scatter.legend_elements()
-        plt.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.05, 1), loc='upper left',fontsize=16,title_fontsize=18)
+
+        # Create custom legend labels
+        legend_labels = [f'Cluster {label}' if label != -1 else 'Outliers'
+                        for label in unique_labels]
+        handles = scatter.legend_elements()[0]
+        plt.legend(handles, legend_labels, title="Clusters",
+                  bbox_to_anchor=(1.05, 1), loc='upper left',
+                  fontsize=16, title_fontsize=18)
+
         plt.xlim(-max_limit, max_limit)
         plt.ylim(-max_limit, max_limit)
         plt.gca().set_aspect('equal', adjustable='box')
@@ -243,11 +254,12 @@ def plot_clustering_combinations(X_pca, labels_clustering, method_name):
 
         for label in unique_labels:
             if label != -1:  # Skip outliers
-                cluster_data = X_pca[labels_clustering == label]
+                cluster_data = X_pca[plot_labels == label]
                 if len(cluster_data) > 1:
                     confidence_ellipse(cluster_data[:, i], cluster_data[:, j], plt.gca(),
-                                       edgecolor=plt.cm.viridis(label / len(unique_labels)),
-                                       facecolor=plt.cm.viridis(label / len(unique_labels)), alpha=0.2)
+                                    edgecolor=plt.cm.viridis((label-1)/(len(unique_labels)-1) if -1 in unique_labels else label/len(unique_labels)),
+                                    facecolor=plt.cm.viridis((label-1)/(len(unique_labels)-1) if -1 in unique_labels else label/len(unique_labels)),
+                                    alpha=0.2)
 
         plt.tight_layout()
         plt.savefig(f'figures/{method_name.lower()}_{i + 1}_vs_{j + 1}.png')
@@ -397,8 +409,13 @@ def interactive_hierarchical_clustering(X_pca):
             break
 
 
-def save_pca_results(X_pca, pca, columns):
-    pca_df = pd.DataFrame(X_pca, columns=[f'PC{i + 1}' for i in range(X_pca.shape[1])])
+def save_pca_results(X_pca, pca, columns, labels):
+    # Create DataFrame with labels
+    pca_df = pd.DataFrame({'Label': labels})
+    # Add PCA components
+    pca_components = pd.DataFrame(X_pca, columns=[f'PC{i + 1}' for i in range(X_pca.shape[1])])
+    pca_df = pd.concat([pca_df, pca_components], axis=1)
+
     pca_df.to_excel('pca_transformed_data.xlsx', index=False)
     click.echo("\nPCA-transformed data saved to 'pca_transformed_data.xlsx'.")
 
@@ -407,149 +424,435 @@ def save_pca_results(X_pca, pca, columns):
     click.echo("PCA loadings saved to 'pca_loadings.xlsx'.")
 
 
-def save_clustering_results(df, labels_clustering):
-    clustering_results = pd.DataFrame(df.iloc[:, 0])
-    clustering_results['Cluster'] = labels_clustering
+def save_clustering_results(labels, cluster_labels):
+    # Add 1 to cluster labels (except for DBSCAN outliers which are -1)
+    adjusted_clusters = np.where(cluster_labels == -1, -1, cluster_labels + 1)
 
+    clustering_results = pd.DataFrame({
+        'Label': labels,
+        'Cluster': adjusted_clusters
+    })
     clustering_results.to_excel('clustering_results.xlsx', index=False)
     click.echo("\nClustering results saved to 'clustering_results.xlsx'.")
 
 
-import click
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from sklearn.svm import SVC
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import LabelBinarizer
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+def supervised_learning(X, classes, labels):
+    """
+    Perform supervised learning with interactive hyperparameter selection,
+    probability predictions, and iterative result review.
+    """
+    # Validate that we have a classification task
+    unique_values = classes.nunique()
+    if not all(unique_values <= 10):
+        click.echo("Error: The selected class columns do not appear to be suitable for classification.")
+        return None
 
-import click
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from sklearn.svm import SVC
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import LabelBinarizer
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+    while True:
+        # Get user-selected models with hyperparameters
+        selected_models = get_model_selection(is_classification=True)
 
-def supervised_learning(X, y):
-    # Ensure y is a 1D array
-    y = y.values.ravel() if hasattr(y, 'values') else np.ravel(y)
+        if not selected_models:
+            click.echo("No models selected. Exiting.")
+            return None
 
-    # Save the original minimum value of y
-    y_min = np.min(y)
+        # Split the data
+        X_train, X_test, y_train, y_test, labels_train, labels_test = train_test_split(
+            X, classes, labels, test_size=0.2, random_state=42
+        )
 
-    # Adjust target labels to start from 0
-    y = y - y_min
+        # Prepare to store overall results
+        overall_results = {}
 
-    # Split the data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        def classification_metrics(y_true, y_pred):
+            return {
+                'Accuracy': accuracy_score(y_true, y_pred),
+                'Classification Report': classification_report(y_true, y_pred, zero_division=0),
+                'Confusion Matrix': confusion_matrix(y_true, y_pred)
+            }
 
-    # Store the original y_test for consistent results across iterations
-    y_test_orig = y_test.copy()
+        # For each class column, train and evaluate selected classifiers
+        for col in classes.columns:
+            click.echo(f"\n--- Classifier Analysis for: {col} ---")
 
-    # Prompt the user to choose between Random Forest, XGBoost, SVM, and PLS-DA
-    model_choice = click.prompt(
-        "\nChoose the supervised learning algorithm:\n1: Random Forest\n2: XGBoost\n3: SVM\n4: PLS-DA\nChoose an option",
-        type=int)
+            # Ensure y is a 1D array
+            y_train_col = y_train[col].values.ravel()
+            y_test_col = y_test[col].values.ravel()
 
-    satisfied = False
+            # Save the original minimum value of y
+            y_train_min = np.min(y_train_col)
+            y_test_min = np.min(y_test_col)
 
-    while not satisfied:
-        if model_choice == 1:
-            click.echo("You selected Random Forest.")
-            # Prompt user for Random Forest hyperparameters
-            n_estimators = click.prompt("Enter number of trees (n_estimators)", type=int, default=100)
-            max_depth = click.prompt("Enter maximum depth of the trees (max_depth)", type=int, default=None)
-            model = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
+            # Adjust target labels to start from 0
+            y_train_col = y_train_col - y_train_min
+            y_test_col = y_test_col - y_test_min
 
-        elif model_choice == 2:
-            click.echo("You selected XGBoost.")
-            # Prompt user for XGBoost hyperparameters
-            learning_rate = click.prompt("Enter learning rate (learning_rate)", type=float, default=0.1)
-            n_estimators = click.prompt("Enter number of trees (n_estimators)", type=int, default=100)
-            max_depth = click.prompt("Enter maximum depth of the trees (max_depth)", type=int, default=3)
-            model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', learning_rate=learning_rate,
-                                  n_estimators=n_estimators, max_depth=max_depth, random_state=42)
+            # Get unique classes
+            unique_classes = np.unique(y_test_col + y_test_min)
 
-        elif model_choice == 3:
-            click.echo("You selected SVM.")
-            # Prompt user for SVM hyperparameters
-            kernel = click.prompt("Enter kernel type (linear, rbf, poly, sigmoid)", type=str, default='rbf')
-            C = click.prompt("Enter regularization parameter (C)", type=float, default=1.0)
-            gamma = click.prompt("Enter kernel coefficient (gamma)", type=str, default='scale')
-            model = SVC(kernel=kernel, C=C, gamma=gamma, random_state=42)
+            # Store results for this column
+            column_results = {}
 
-        elif model_choice == 4:
-            click.echo("You selected PLS-DA.")
-            # PLS-DA specific code: Use LabelBinarizer to convert y_train into a binary matrix
-            lb = LabelBinarizer()
-            Y_train_bin = lb.fit_transform(y_train)
+            for clf_name, classifier in selected_models:
+                click.echo(f"\nTraining {clf_name} Classifier")
 
-            # Prompt user for PLS-DA hyperparameters
-            n_components = click.prompt("Enter number of components (n_components)", type=int, default=2)
-            model = PLSRegression(n_components=n_components)
-            model.fit(X_train, Y_train_bin)
+                # Special handling for PLS-DA
+                if clf_name == 'PLS-DA':
+                    # One-hot encode the target for PLS-DA
+                    lb = LabelBinarizer()
+                    y_train_encoded = lb.fit_transform(y_train_col)
+                    y_test_encoded = lb.transform(y_test_col)
 
-            # Make predictions
-            Y_pred_continuous = model.predict(X_test)
-            y_pred = np.argmax(Y_pred_continuous, axis=1)
+                    # Train the PLS-DA model
+                    plsda = classifier
+                    plsda.fit(X_train, y_train_encoded)
+
+                    # Predict probabilities
+                    y_pred_proba = plsda.predict(X_test)
+                    y_pred = np.argmax(y_pred_proba, axis=1)
+
+                    # Create results DataFrame WITHOUT probability columns
+                    results = pd.DataFrame({
+                        'Label': labels_test,
+                        'Actual': y_test_col + y_test_min,  # Convert back to original labels
+                        'Predicted': y_pred + y_test_min  # Convert back to original labels
+                    })
+
+                # Handling for classifiers with predict_proba method
+                elif hasattr(classifier, 'predict_proba'):
+                    # Train the classifier
+                    classifier.fit(X_train, y_train_col)
+
+                    # Predict labels and probabilities
+                    y_pred = classifier.predict(X_test)
+                    y_pred_proba = classifier.predict_proba(X_test)
+
+                    # Create results DataFrame with probabilities for each class
+                    results = pd.DataFrame({
+                        'Label': labels_test,
+                        'Actual': y_test_col + y_test_min,  # Convert back to original labels
+                        'Predicted': y_pred + y_test_min  # Convert back to original labels
+                    })
+
+                    # Add probability columns
+                    for i, cls in enumerate(unique_classes):
+                        results[f'Prob_Class_{cls}'] = y_pred_proba[:, i]
+
+                # Fallback for classifiers without probability prediction
+                else:
+                    # Train the classifier
+                    classifier.fit(X_train, y_train_col)
+
+                    # Predict labels
+                    y_pred = classifier.predict(X_test)
+
+                    # Create results DataFrame without probabilities
+                    results = pd.DataFrame({
+                        'Label': labels_test,
+                        'Actual': y_test_col + y_test_min,  # Convert back to original labels
+                        'Predicted': y_pred + y_test_min  # Convert back to original labels
+                    })
+
+                # Save results to Excel
+                results.to_excel(f'{clf_name.lower().replace(" ", "_")}_classification_results_{col}.xlsx', index=False)
+                click.echo(
+                    f"\nResults saved to '{clf_name.lower().replace(' ', '_')}_classification_results_{col}.xlsx'")
+
+                # Calculate and display metrics
+                metrics = classification_metrics(y_test_col, y_pred)
+
+                click.echo(f"\nAccuracy: {metrics['Accuracy']:.4f}")
+                click.echo("\nClassification Report:")
+                click.echo(metrics['Classification Report'])
+
+                # Plot Confusion Matrix
+                plot_confusion_matrix(
+                    y_test_col,
+                    y_pred,
+                    classes=unique_classes,
+                    title=f'{clf_name} Confusion Matrix - {col}'
+                )
+
+                # Feature importance
+                if clf_name in ['Random Forest', 'XGBoost']:
+                    feature_importance = pd.DataFrame({
+                        'feature': X.columns,
+                        'importance': classifier.feature_importances_
+                    }).sort_values('importance', ascending=False)
+
+                    click.echo("\nFeature Importance:")
+                    click.echo(feature_importance)
+                elif clf_name == 'PLS-DA':
+                    # For PLS-DA, use the PLS weights as a proxy for feature importance
+                    pls_weights = np.abs(plsda.coef_).mean(axis=0)
+                    feature_importance = pd.DataFrame({
+                        'feature': X.columns,
+                        'importance': pls_weights
+                    }).sort_values('importance', ascending=False)
+
+                    click.echo("\nPLS-DA Feature Weights:")
+                    click.echo(feature_importance)
+                elif clf_name == 'Support Vector Machine':
+                    click.echo("\nFeature importance not directly available for SVM.")
+                else:
+                    click.echo("\nFeature importance not available for this model.")
+
+                # Store results
+                column_results[clf_name] = {
+                    'metrics': metrics,
+                    'predictions': results,
+                    'hyperparameters': classifier.get_params()
+                }
+
+            # Store overall results
+            overall_results[col] = column_results
+
+        # Ask user if they're satisfied with the results
+        save_model_statistics(overall_results)
+
+        proceed = click.prompt("Are you satisfied with the classification results? (yes/no)", type=str)
+        if proceed.lower() == 'yes':
+            break
         else:
-            click.echo("Invalid choice. Defaulting to Random Forest.")
-            model = RandomForestClassifier(n_estimators=100, random_state=42)
+            click.echo("\nRerunning supervised learning with new model selection.")
 
-        if model_choice != 4:
-            # Fit the model for Random Forest, XGBoost, and SVM
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
+    return overall_results
 
-        # Restore original labels for evaluation
-        y_test_eval = y_test_orig + y_min
-        y_pred_eval = y_pred + y_min
+def get_model_selection(is_classification):
+    """
+    Interactively get model selection from the user for classification only.
+    """
+    available_models = {
+        1: ('Random Forest', RandomForestClassifier(n_estimators=100, random_state=42)),
+        2: ('XGBoost', XGBClassifier(n_estimators=100, random_state=42)),
+        3: ('Support Vector Machine', SVC(random_state=42)),
+        4: ('PLS-DA', PLSRegression())  # Added PLS-DA as a classification option
+    }
 
-        # Output the results
-        click.echo("\nSupervised Learning Results:")
-        click.echo("\nAccuracy: {:.2f}%".format(accuracy_score(y_test_eval, y_pred_eval) * 100))
-        click.echo("\nConfusion Matrix:")
-        cm = confusion_matrix(y_test_eval, y_pred_eval)
-        click.echo(cm)
+    # Display available models
+    click.echo("\nAvailable Classification Models:")
+    for key, (name, _) in available_models.items():
+        click.echo(f"{key}: {name}")
 
-        # Plot confusion matrix
-        plt.figure(figsize=(6, 4))
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=np.unique(y_test_eval), yticklabels=np.unique(y_test_eval))
-        plt.ylabel("Actual")
-        plt.xlabel("Predicted")
-        plt.title("Confusion Matrix")
-        plt.show()
+    # Allow multiple selections
+    selections = click.prompt(
+        "Enter the numbers of models you want to use (space-separated)",
+        type=str
+    )
 
-        click.echo("\nClassification Report:")
-        click.echo(classification_report(y_test_eval, y_pred_eval, zero_division=0))
+    # Process selections
+    selected_models = []
+    for sel in selections.split():
+        try:
+            model_num = int(sel)
+            if model_num in available_models:
+                selected_models.append(available_models[model_num])
+            else:
+                click.echo(f"Invalid selection: {model_num}")
+        except ValueError:
+            click.echo(f"Invalid input: {sel}")
 
-        # Ask the user if they are satisfied with the results
-        satisfied = click.confirm("\nAre you satisfied with the results?", default=True)
-
-        if not satisfied:
-            click.echo("Let's adjust the hyperparameters and try again.")
-
-    # Save the results
-    model_name = {1: 'random_forest', 2: 'xgboost', 3: 'svm', 4: 'pls_da'}.get(model_choice, 'random_forest')
-    results = pd.DataFrame({
-        'Actual': y_test_eval,
-        'Predicted': y_pred_eval
-    })
-    results.to_excel(f'{model_name}_results.xlsx', index=False)
-    click.echo(f"\nResults saved to '{model_name}_results.xlsx'.")
+    return selected_models
 
 
+def plot_confusion_matrix(y_true, y_pred, classes, title):
+    """
+    Plot a confusion matrix using seaborn and matplotlib
+
+    Parameters:
+    - y_true: True labels
+    - y_pred: Predicted labels
+    - classes: Unique class labels
+    - title: Title for the plot
+    """
+    # Ensure the 'figures' directory exists
+    if not os.path.exists('figures'):
+        os.makedirs('figures')
+
+    # Compute confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+
+    # Use seaborn to create a more visually appealing confusion matrix
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=classes,
+                yticklabels=classes)
+    plt.title(title, fontsize=16)
+    plt.xlabel('Predicted Label', fontsize=12)
+    plt.ylabel('True Label', fontsize=12)
+    plt.tight_layout()
+
+    # Save the plot
+    filename = f'figures/{title.lower().replace(" ", "_")}_confusion_matrix.png'
+    plt.savefig(filename)
+    plt.close()
+
+    click.echo(f"\nConfusion matrix plot saved to '{filename}'")
+
+
+def save_model_statistics(overall_results, output_file='model_statistics.txt'):
+    """
+    Save detailed model statistics to a text file, now including hyperparameters
+
+    Parameters:
+    - overall_results: Dictionary containing results from all models and columns
+    - output_file: Name of the output file
+    """
+    with open(output_file, 'w') as f:
+        for col, column_results in overall_results.items():
+            f.write(f"{'=' * 50}\n")
+            f.write(f"MODEL STATISTICS FOR COLUMN: {col}\n")
+            f.write(f"{'=' * 50}\n\n")
+
+            for model_name, model_data in column_results.items():
+                f.write(f"\n--- {model_name} Model Statistics ---\n")
+
+                # Hyperparameters
+                f.write("\nHyperparameters:\n")
+                for param, value in model_data['hyperparameters'].items():
+                    f.write(f"{param}: {value}\n")
+
+                # Metrics
+                metrics = model_data['metrics']
+                f.write("\nMetrics:\n")
+                f.write(f"Accuracy: {metrics['Accuracy']:.4f}\n")
+
+                # Classification Report
+                f.write("\nClassification Report:\n")
+                f.write(str(metrics['Classification Report']) + "\n")
+
+                # Confusion Matrix
+                f.write("\nConfusion Matrix:\n")
+                f.write(str(metrics['Confusion Matrix']) + "\n")
+
+                # Predictions Analysis
+                predictions = model_data['predictions']
+                f.write("\nPrediction Analysis:\n")
+                f.write(f"Total Samples: {len(predictions)}\n")
+                correct_predictions = (predictions['Actual'] == predictions['Predicted']).sum()
+                f.write(f"Correctly Predicted: {correct_predictions}\n")
+                f.write(f"Incorrectly Predicted: {len(predictions) - correct_predictions}\n")
+
+                # Prediction Error Analysis
+                misclassified = predictions[predictions['Actual'] != predictions['Predicted']]
+                f.write("\nMisclassification Details:\n")
+                f.write(str(misclassified) + "\n")
+
+                f.write("\n" + "-" * 50 + "\n")
+
+    click.echo(f"\nModel statistics saved to '{output_file}'")
+
+
+def get_model_hyperparameters(model_name):
+    """
+    Interactively get hyperparameters for different classification models.
+    """
+    hyperparameters = {}
+
+    if model_name == 'Random Forest':
+        n_estimators = click.prompt("Enter number of trees (default: 100)", type=int, default=100)
+        max_depth = click.prompt("Enter max depth of trees (default: 0)",
+                                 type=int, default=0)
+        min_samples_split = click.prompt("Enter min samples to split (default: 2)",
+                                         type=int, default=2)
+
+        hyperparameters = {
+            'n_estimators': n_estimators,
+            'max_depth': None if max_depth == 0 else max_depth,
+            'min_samples_split': min_samples_split,
+            'random_state': 42
+        }
+
+    elif model_name == 'XGBoost':
+        n_estimators = click.prompt("Enter number of boosting rounds (default: 100)", type=int, default=100)
+        learning_rate = click.prompt("Enter learning rate (default: 0.1)", type=float, default=0.1)
+        max_depth = click.prompt("Enter max depth of trees (default: 6)", type=int, default=6)
+
+        hyperparameters = {
+            'n_estimators': n_estimators,
+            'learning_rate': learning_rate,
+            'max_depth': max_depth,
+            'random_state': 42
+        }
+
+    elif model_name == 'Support Vector Machine':
+        kernel = click.prompt("Choose kernel (linear/rbf/poly/sigmoid)",
+                              type=click.Choice(['linear', 'rbf', 'poly', 'sigmoid']),
+                              default='rbf')
+        c_value = click.prompt("Enter regularization parameter C (default: 1.0)", type=float, default=1.0)
+        gamma = click.prompt("Enter kernel coefficient (auto/scale/float value, default: 'scale')",
+                             type=str, default='scale')
+
+        hyperparameters = {
+            'kernel': kernel,
+            'C': c_value,
+            'gamma': 'scale' if gamma == 'scale' or gamma == 'auto' else float(gamma),
+            'random_state': 42
+        }
+
+
+    elif model_name == 'PLS-DA':
+        n_components = click.prompt("Enter number of components (n_components)", type=int, default=2)
+
+        hyperparameters = {
+            'n_components': n_components
+        }
+
+
+
+    return hyperparameters
+
+
+def get_model_selection(is_classification):
+    """
+    Interactively get model selection and their hyperparameters for classification.
+    """
+    available_models = {
+        1: 'Random Forest',
+        2: 'XGBoost',
+        3: 'Support Vector Machine',
+        4: 'PLS-DA'
+    }
+
+    # Display available models
+    click.echo("\nAvailable Classification Models:")
+    for key, name in available_models.items():
+        click.echo(f"{key}: {name}")
+
+    # Allow multiple selections
+    selections = click.prompt(
+        "Enter the numbers of models you want to use (space-separated)",
+        type=str
+    )
+
+    # Process selections
+    selected_models = []
+    for sel in selections.split():
+        try:
+            model_num = int(sel)
+            if model_num in available_models:
+                model_name = available_models[model_num]
+
+                # Prompt for hyperparameters
+                click.echo(f"\nConfiguring hyperparameters for {model_name}")
+                hyperparameters = get_model_hyperparameters(model_name)
+
+                # Instantiate the model with user-specified hyperparameters
+                if model_name == 'Random Forest':
+                    model = RandomForestClassifier(**hyperparameters)
+                elif model_name == 'XGBoost':
+                    model = XGBClassifier(**hyperparameters)
+                elif model_name == 'Support Vector Machine':
+                    model = SVC(**hyperparameters)
+                elif model_name == 'PLS-DA':
+                    model = PLSRegression(**hyperparameters)
+
+                selected_models.append((model_name, model))
+            else:
+                click.echo(f"Invalid selection: {model_num}")
+        except ValueError:
+            click.echo(f"Invalid input: {sel}")
+
+    return selected_models
 
 if __name__ == "__main__":
     main()
