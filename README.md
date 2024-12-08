@@ -1,6 +1,6 @@
 
 # Automated Machine Learning Workflow for Excel Data
-
+![image ult](https://github.com/AnirudhM2110/Automated-Machine-Learning-Workflow-for-Excel-Data/blob/master/Title%20image.png?raw=true)
 This repository offers a comprehensive solution for performing data analysis using machine learning techniques on data stored in Excel files. The goal is to provide users with an easy-to-use command-line interface (CLI) to preprocess, analyze, and visualize data using a variety of machine learning models, including both **unsupervised** (PCA, clustering) and **supervised** (classification) learning methods.
 
 ## Key Features
