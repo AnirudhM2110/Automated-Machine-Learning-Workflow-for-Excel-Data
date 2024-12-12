@@ -128,8 +128,17 @@ def display_columns(df):
         click.echo(f"{i}: {col}")
 
 def get_column_selections(num_columns):
+    class_columns_input = click.prompt(
+        "Enter column numbers for class/target variables (ignore if doing unsupervised learning)", type=str, default='')
+    class_columns = [int(i) - 1 for i in class_columns_input.split(' ') if i.isdigit()]
+
+    invalid_class_columns = [i for i in class_columns if i < 0 or i >= num_columns]
+    if invalid_class_columns:
+        click.echo("Error, choice not in sheet.")
+        return get_column_selections(num_columns)
+
     ignore_columns_input = click.prompt(
-        "Enter column numbers to ignore (space separated, type 'none' to include all columns)", type=str)
+        "Enter column numbers to ignore (space separated)", type=str, default='none')
 
     if ignore_columns_input.lower() == 'none':
         ignore_columns = []
@@ -141,17 +150,7 @@ def get_column_selections(num_columns):
             click.echo("Error, choice not in sheet.")
             return get_column_selections(num_columns)
 
-    class_columns_input = click.prompt(
-        "Enter column numbers for class/target variables (ignore if doing unsupervised learning)", type=str, default='')
-    class_columns = [int(i) - 1 for i in class_columns_input.split(' ') if i.isdigit()]
-
-    invalid_class_columns = [i for i in class_columns if i < 0 or i >= num_columns]
-    if invalid_class_columns:
-        click.echo("Error, choice not in sheet.")
-        return get_column_selections(num_columns)
-
     return ignore_columns, class_columns
-
 
 def check_numeric_columns(X):
     non_numeric_columns = X.select_dtypes(exclude=[float, int]).columns
@@ -353,8 +352,8 @@ def interactive_dbscan_clustering(X_pca):
             click.echo("\nPlease close the plot window to proceed.")
             plot_clustering_combinations(X_pca, labels_clustering, "DBSCAN")
 
-            proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
-            if proceed.lower() == 'yes':
+            proceed = click.prompt("Are you satisfied with the clustering result? (y/n)", type=str)
+            if proceed.lower() == 'y':
                 return labels_clustering  # Return the labels_clustering to save the results
         else:
             click.echo("\nNot enough samples for clustering.")
@@ -382,8 +381,8 @@ def interactive_kmeans_clustering(X_pca):
             click.echo("\nPlease close the plot window to proceed.")
             plot_clustering_combinations(X_pca, labels_clustering, "K-means")
 
-            proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
-            if proceed.lower() == 'yes':
+            proceed = click.prompt("Are you satisfied with the clustering result? (y/n)", type=str)
+            if proceed.lower() == 'y':
                 return labels_clustering  # Return the labels_clustering to save the results
         else:
             click.echo("\nNot enough samples for clustering.")
@@ -401,8 +400,8 @@ def interactive_hierarchical_clustering(X_pca):
             click.echo("\nPlease close the plot window to proceed.")
             plot_clustering_combinations(X_pca, labels_clustering, "Hierarchical ")
 
-            proceed = click.prompt("Are you satisfied with the clustering result? (yes/no)", type=str)
-            if proceed.lower() == 'yes':
+            proceed = click.prompt("Are you satisfied with the clustering result? (y/n)", type=str)
+            if proceed.lower() == 'y':
                 return labels_clustering
         else:
             click.echo("\nNot enough samples for clustering.")
@@ -609,8 +608,8 @@ def supervised_learning(X, classes, labels):
         # Ask user if they're satisfied with the results
         save_model_statistics(overall_results)
 
-        proceed = click.prompt("Are you satisfied with the classification results? (yes/no)", type=str)
-        if proceed.lower() == 'yes':
+        proceed = click.prompt("Are you satisfied with the classification results? (y/n)", type=str)
+        if proceed.lower() == 'y':
             break
         else:
             click.echo("\nRerunning supervised learning with new model selection.")
@@ -622,10 +621,10 @@ def get_model_selection(is_classification):
     Interactively get model selection from the user for classification only.
     """
     available_models = {
-        1: ('Random Forest', RandomForestClassifier(n_estimators=100, random_state=42)),
-        2: ('XGBoost', XGBClassifier(n_estimators=100, random_state=42)),
-        3: ('Support Vector Machine', SVC(random_state=42)),
-        4: ('PLS-DA', PLSRegression())  # Added PLS-DA as a classification option
+        1: ('PLS-DA', PLSRegression()),
+        2: ('Support Vector Machine', SVC(random_state=42)),
+        3: ('XGBoost', XGBClassifier(n_estimators=100, random_state=42)),
+        4: ('Random Forest', RandomForestClassifier(n_estimators=100, random_state=42))
     }
 
     # Display available models
@@ -646,6 +645,59 @@ def get_model_selection(is_classification):
             model_num = int(sel)
             if model_num in available_models:
                 selected_models.append(available_models[model_num])
+            else:
+                click.echo(f"Invalid selection: {model_num}")
+        except ValueError:
+            click.echo(f"Invalid input: {sel}")
+
+    return selected_models
+
+
+def get_model_selection(is_classification):
+    """
+    Interactively get model selection and their hyperparameters for classification.
+    """
+    available_models = {
+        1: 'PLS-DA',
+        2: 'Support Vector Machine',
+        3: 'XGBoost',
+        4: 'Random Forest'
+    }
+
+    # Display available models
+    click.echo("\nAvailable Classification Models:")
+    for key, name in available_models.items():
+        click.echo(f"{key}: {name}")
+
+    # Allow multiple selections
+    selections = click.prompt(
+        "Enter the numbers of models you want to use (space-separated)",
+        type=str
+    )
+
+    # Process selections
+    selected_models = []
+    for sel in selections.split():
+        try:
+            model_num = int(sel)
+            if model_num in available_models:
+                model_name = available_models[model_num]
+
+                # Prompt for hyperparameters
+                click.echo(f"\nConfiguring hyperparameters for {model_name}")
+                hyperparameters = get_model_hyperparameters(model_name)
+
+                # Instantiate the model with user-specified hyperparameters
+                if model_name == 'PLS-DA':
+                    model = PLSRegression(**hyperparameters)
+                elif model_name == 'Support Vector Machine':
+                    model = SVC(**hyperparameters)
+                elif model_name == 'XGBoost':
+                    model = XGBClassifier(**hyperparameters)
+                elif model_name == 'Random Forest':
+                    model = RandomForestClassifier(**hyperparameters)
+
+                selected_models.append((model_name, model))
             else:
                 click.echo(f"Invalid selection: {model_num}")
         except ValueError:
