@@ -654,58 +654,42 @@ def get_model_selection(is_classification):
 
 
 def get_model_selection(is_classification):
-    """
-    Interactively get model selection and their hyperparameters for classification.
-    """
     available_models = {
-        1: 'PLS-DA',
-        2: 'Support Vector Machine',
-        3: 'XGBoost',
-        4: 'Random Forest'
+        1: ('PLS-DA', PLSRegression(n_components=2)),
+        2: ('Support Vector Machine', SVC(random_state=42)),
+        3: ('XGBoost', XGBClassifier(random_state=42)),
+        4: ('Random Forest', RandomForestClassifier(random_state=42))
     }
 
-    # Display available models
     click.echo("\nAvailable Classification Models:")
-    for key, name in available_models.items():
+    for key, (name, _) in available_models.items():
         click.echo(f"{key}: {name}")
 
-    # Allow multiple selections
-    selections = click.prompt(
-        "Enter the numbers of models you want to use (space-separated)",
-        type=str
-    )
-
-    # Process selections
+    selections = click.prompt("Enter the numbers of models you want to use (space-separated)", type=str)
     selected_models = []
+
     for sel in selections.split():
         try:
             model_num = int(sel)
             if model_num in available_models:
-                model_name = available_models[model_num]
-
-                # Prompt for hyperparameters
+                model_name, base_model = available_models[model_num]
                 click.echo(f"\nConfiguring hyperparameters for {model_name}")
                 hyperparameters = get_model_hyperparameters(model_name)
 
-                # Instantiate the model with user-specified hyperparameters
                 if model_name == 'PLS-DA':
                     model = PLSRegression(**hyperparameters)
                 elif model_name == 'Support Vector Machine':
                     model = SVC(**hyperparameters)
                 elif model_name == 'XGBoost':
                     model = XGBClassifier(**hyperparameters)
-                elif model_name == 'Random Forest':
+                else:  # Random Forest
                     model = RandomForestClassifier(**hyperparameters)
 
                 selected_models.append((model_name, model))
-            else:
-                click.echo(f"Invalid selection: {model_num}")
         except ValueError:
             click.echo(f"Invalid input: {sel}")
 
     return selected_models
-
-
 def plot_confusion_matrix(y_true, y_pred, classes, title):
     """
     Plot a confusion matrix using seaborn and matplotlib
@@ -800,30 +784,10 @@ def get_model_hyperparameters(model_name):
     """
     hyperparameters = {}
 
-    if model_name == 'Random Forest':
-        n_estimators = click.prompt("Enter number of trees (default: 100)", type=int, default=100)
-        max_depth = click.prompt("Enter max depth of trees (default: 0)",
-                                 type=int, default=0)
-        min_samples_split = click.prompt("Enter min samples to split (default: 2)",
-                                         type=int, default=2)
-
+    if model_name == 'PLS-DA':
+        n_components = click.prompt("Enter number of components (n_components)", type=int, default=2)
         hyperparameters = {
-            'n_estimators': n_estimators,
-            'max_depth': None if max_depth == 0 else max_depth,
-            'min_samples_split': min_samples_split,
-            'random_state': 42
-        }
-
-    elif model_name == 'XGBoost':
-        n_estimators = click.prompt("Enter number of boosting rounds (default: 100)", type=int, default=100)
-        learning_rate = click.prompt("Enter learning rate (default: 0.1)", type=float, default=0.1)
-        max_depth = click.prompt("Enter max depth of trees (default: 6)", type=int, default=6)
-
-        hyperparameters = {
-            'n_estimators': n_estimators,
-            'learning_rate': learning_rate,
-            'max_depth': max_depth,
-            'random_state': 42
+            'n_components': n_components
         }
 
     elif model_name == 'Support Vector Machine':
@@ -833,7 +797,6 @@ def get_model_hyperparameters(model_name):
         c_value = click.prompt("Enter regularization parameter C (default: 1.0)", type=float, default=1.0)
         gamma = click.prompt("Enter kernel coefficient (auto/scale/float value, default: 'scale')",
                              type=str, default='scale')
-
         hyperparameters = {
             'kernel': kernel,
             'C': c_value,
@@ -841,70 +804,34 @@ def get_model_hyperparameters(model_name):
             'random_state': 42
         }
 
-
-    elif model_name == 'PLS-DA':
-        n_components = click.prompt("Enter number of components (n_components)", type=int, default=2)
-
+    elif model_name == 'XGBoost':
+        n_estimators = click.prompt("Enter number of boosting rounds (default: 100)", type=int, default=100)
+        learning_rate = click.prompt("Enter learning rate (default: 0.1)", type=float, default=0.1)
+        max_depth = click.prompt("Enter max depth of trees (default: 6)", type=int, default=6)
         hyperparameters = {
-            'n_components': n_components
+            'n_estimators': n_estimators,
+            'learning_rate': learning_rate,
+            'max_depth': max_depth,
+            'random_state': 42
         }
 
-
+    elif model_name == 'Random Forest':
+        n_estimators = click.prompt("Enter number of trees (default: 100)", type=int, default=100)
+        max_depth = click.prompt("Enter max depth of trees (default: 0)",
+                                 type=int, default=0)
+        min_samples_split = click.prompt("Enter min samples to split (default: 2)",
+                                         type=int, default=2)
+        hyperparameters = {
+            'n_estimators': n_estimators,
+            'max_depth': None if max_depth == 0 else max_depth,
+            'min_samples_split': min_samples_split,
+            'random_state': 42
+        }
 
     return hyperparameters
 
 
-def get_model_selection(is_classification):
-    """
-    Interactively get model selection and their hyperparameters for classification.
-    """
-    available_models = {
-        1: 'Random Forest',
-        2: 'XGBoost',
-        3: 'Support Vector Machine',
-        4: 'PLS-DA'
-    }
 
-    # Display available models
-    click.echo("\nAvailable Classification Models:")
-    for key, name in available_models.items():
-        click.echo(f"{key}: {name}")
-
-    # Allow multiple selections
-    selections = click.prompt(
-        "Enter the numbers of models you want to use (space-separated)",
-        type=str
-    )
-
-    # Process selections
-    selected_models = []
-    for sel in selections.split():
-        try:
-            model_num = int(sel)
-            if model_num in available_models:
-                model_name = available_models[model_num]
-
-                # Prompt for hyperparameters
-                click.echo(f"\nConfiguring hyperparameters for {model_name}")
-                hyperparameters = get_model_hyperparameters(model_name)
-
-                # Instantiate the model with user-specified hyperparameters
-                if model_name == 'Random Forest':
-                    model = RandomForestClassifier(**hyperparameters)
-                elif model_name == 'XGBoost':
-                    model = XGBClassifier(**hyperparameters)
-                elif model_name == 'Support Vector Machine':
-                    model = SVC(**hyperparameters)
-                elif model_name == 'PLS-DA':
-                    model = PLSRegression(**hyperparameters)
-
-                selected_models.append((model_name, model))
-            else:
-                click.echo(f"Invalid selection: {model_num}")
-        except ValueError:
-            click.echo(f"Invalid input: {sel}")
-
-    return selected_models
 
 if __name__ == "__main__":
     main()
