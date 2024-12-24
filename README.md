@@ -23,43 +23,89 @@ This repository offers a comprehensive solution for performing data analysis usi
 -   **Principal Component Analysis (PCA)**: A technique to reduce the dimensionality of the data while preserving as much variance as possible. PCA is used for exploratory data analysis and visualization.
     
     -   Visualizes the transformed data in the form of a scatter plot showing the first two principal components.
--   **Clustering Algorithms**: The repository supports three popular clustering techniques:
-    
-    -   **K-Means Clustering**: A method to partition the data into K clusters. The number of clusters can either be chosen by the user or determined using the **elbow method**.
-    -   **DBSCAN**: A density-based clustering algorithm that does not require the number of clusters to be predefined. Users can tune the parameters **epsilon** and **min_samples**.
-    -   **Hierarchical Clustering**: Performs agglomerative hierarchical clustering, where clusters are built iteratively. Users can specify the desired number of clusters.
--   **Visualization**: Clustering results are visualized using scatter plots. Additionally, confidence ellipses can be drawn around clusters to validate the quality of the clustering.
-    
+- **Clustering Algorithms**:
+  - **K-Means Clustering**: 
+    - Parameters:
+      - n_clusters (int): Number of clusters 
+     
+  
+  - **DBSCAN**: 
+    - Parameters:
+      - epsilon (float): The maximum distance between two samples for one to be considered as in the neighborhood of the other. This is the most important DBSCAN parameter. Represents the radius of the neighborhood around a point.
+       
+        - Smaller values create tighter, more numerous clusters
+        - Larger values create fewer, more inclusive clusters
+      - min_samples (int): The minimum number of samples in a neighborhood for a point to be considered as a core point
+
+  
+  - **Hierarchical Clustering**:
+    - Parameters:
+      - n_clusters (int): Number of clusters 
+      
 
 ### 4. **Supervised Learning**
 
--   **Random Forest Classifier**: An ensemble method for classification that uses multiple decision trees to make decisions. It is robust and handles overfitting well.
-    
--   **XGBoost Classifier**: A popular and efficient implementation of gradient-boosted trees that performs well on structured data.
-    
--   **Support Vector Machine (SVM)**: A powerful model for classification that works well for high-dimensional data.
-    
--   **Partial Least Squares Discriminant Analysis (PLS-DA)**: A supervised method for finding a linear regression model that can separate classes.
-    
--   **Hyperparameter Tuning**: The script provides options for fine-tuning the hyperparameters of the classifiers, such as the number of trees for Random Forest or the kernel type for SVM. Users can specify hyperparameter ranges for optimal performance.
-    
--   **Model Evaluation**: After training a model, performance is evaluated using:
+- **PLS-DA**:
+  - Parameters:
+   `n_components`: Number of components to keep in the model
+
+- **Support Vector Machine (SVM)**:
+  - Parameters:
+    - `kernel`: Specifies the kernel type to be used in the algorithm. Determines how the data is transformed into higher dimensions
+    - `C`: Regularization parameter. Controls trade-off between achieving a low training error and a low testing error
+    - `gamma`: Kernel coefficient. Defines how far the influence of a single training example reaches
+
+- **XGBoost**:
+  - Parameters:
+    - `n_estimators`: Number of boosting rounds. Number of trees to be built
+    - `learning_rate`: Step size shrinkage. Controls how much we adjust the weights of our features at each step
+    - `max_depth`: Maximum depth of a tree. Controls how deep each tree can grow during the boosting process
+
+- **Random Forest**:
+  - Parameters:
+    - `n_estimators`: Number of trees in the forest
+    - `max_depth`: Maximum depth of each tree
+    - `min_samples_split`: Minimum samples required to split an internal node
+  
+
+
+
+### 5. **Model Evaluation**
+
+-  After training a model, performance is evaluated using:
     
     -   **Accuracy**: The proportion of correct predictions.
     -   **Confusion Matrix**: A summary table showing the number of correct and incorrect predictions, broken down by class.
     -   **Classification Report**: A detailed report providing precision, recall, and F1-score for each class.
 
-### 5. **Data Export and Results Saving**
+### 6. **Data Export and Results Saving**
 
 -   Results from PCA, clustering, and supervised learning models can be saved to new Excel files for further analysis. This includes:
     -   **PCA-transformed data**: A file containing the data after applying PCA, allowing users to explore the reduced feature set.
     -   **Clustering results**: A file with the cluster assignments for each data point, as well as additional metadata.
     -   **Figures**: Visualizations of PCA and clustering results, including scatter plots and confidence ellipses, are saved in the `figures/` directory.
 
-### 6. **Interactive Command-Line Interface (CLI)**
+### 7. **Interactive Command-Line Interface (CLI)**
 
 -   The code offers an interactive CLI where users are prompted to select files, sheets, preprocessing options, and machine learning models step-by-step.
 -   It is designed to be easy to use, even for users without a deep background in machine learning. The options are presented in a simple, menu-driven format.
+
+## Input File Requirements
+
+1. File Format:
+   - Must be Excel format (.xlsx)
+   - File should be placed in the same directory as the script
+   - Multiple sheets are supported
+
+2. Data Structure:
+   - First column: Sample labels (text or numeric)
+   - Subsequent columns: Numeric data for analysis
+   - Header row required
+   - No missing values allowed
+   - No text data in analysis columns
+   - Class columns (for supervised learning) should contain categorical data
+
+
 ## Usage Instructions
 
 ### 1. **Installation**
@@ -80,7 +126,7 @@ Open your terminal or command-line interface:
       ```bash
     python main.py
 ### 3. **Selecting the Excel File**
-
+-   Place your Excel data file in the same directory as the script 
 -   The script will scan the current directory for `.xlsx` files.
 -   You will be prompted to select an Excel file by entering its corresponding number.
 
