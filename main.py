@@ -437,10 +437,14 @@ def save_clustering_results(labels, cluster_labels):
 
 def supervised_learning(X, classes, labels):
     """
-    Perform supervised learning with interactive hyperparameter selection,
-    probability predictions, and iterative result review.
+    Perform supervised learning with multiple classifiers and visualization.
+
+    Parameters:
+    - X: DataFrame of features
+    - classes: DataFrame of target variables
+    - labels: Series of sample labels
     """
-    # Validate that we have a classification task
+    # Validate classification task
     unique_values = classes.nunique()
     if not all(unique_values <= 10):
         click.echo("Error: The selected class columns do not appear to be suitable for classification.")
@@ -459,141 +463,47 @@ def supervised_learning(X, classes, labels):
             X, classes, labels, test_size=0.2, random_state=42
         )
 
-        # Prepare to store overall results
+        # Store overall results
         overall_results = {}
 
-        def classification_metrics(y_true, y_pred):
-            return {
-                'Accuracy': accuracy_score(y_true, y_pred),
-                'Classification Report': classification_report(y_true, y_pred, zero_division=0),
-                'Confusion Matrix': confusion_matrix(y_true, y_pred)
-            }
-
-        # For each class column, train and evaluate selected classifiers
+        # Process each class column separately
         for col in classes.columns:
             click.echo(f"\n--- Classifier Analysis for: {col} ---")
 
-            # Ensure y is a 1D array
+            # Prepare target variables
             y_train_col = y_train[col].values.ravel()
             y_test_col = y_test[col].values.ravel()
 
-            # Save the original minimum value of y
-            y_train_min = np.min(y_train_col)
-            y_test_min = np.min(y_test_col)
-
-            # Adjust target labels to start from 0
-            y_train_col = y_train_col - y_train_min
-            y_test_col = y_test_col - y_test_min
-
-            # Get unique classes
-            unique_classes = np.unique(y_test_col + y_test_min)
+            # Adjust labels to start from 0
+            y_min = min(np.min(y_train_col), np.min(y_test_col))
+            y_train_col = y_train_col - y_min
+            y_test_col = y_test_col - y_min
+            unique_classes = np.unique(y_test_col + y_min)
 
             # Store results for this column
             column_results = {}
 
+            # Train and evaluate each selected model
             for clf_name, classifier in selected_models:
                 click.echo(f"\nTraining {clf_name} Classifier")
 
-                # Special handling for PLS-DA
                 if clf_name == 'PLS-DA':
-                    # One-hot encode the target for PLS-DA
-                    lb = LabelBinarizer()
-                    y_train_encoded = lb.fit_transform(y_train_col)
-                    y_test_encoded = lb.transform(y_test_col)
-
-                    # Train the PLS-DA model
-                    plsda = classifier
-                    plsda.fit(X_train, y_train_encoded)
-
-                    # Predict probabilities
-                    y_pred_proba = plsda.predict(X_test)
-                    y_pred = np.argmax(y_pred_proba, axis=1)
-
-                    # Create results DataFrame WITHOUT probability columns
-                    results = pd.DataFrame({
-                        'Label': labels_test,
-                        'Actual': y_test_col + y_test_min,  # Convert back to original labels
-                        'Predicted': y_pred + y_test_min  # Convert back to original labels
-                    })
-
-                # Handling for classifiers with predict_proba method
-                elif hasattr(classifier, 'predict_proba'):
-                    # Train the classifier
-                    classifier.fit(X_train, y_train_col)
-
-                    # Predict labels and probabilities
-                    y_pred = classifier.predict(X_test)
-                    y_pred_proba = classifier.predict_proba(X_test)
-
-                    # Create results DataFrame with probabilities for each class
-                    results = pd.DataFrame({
-                        'Label': labels_test,
-                        'Actual': y_test_col + y_test_min,  # Convert back to original labels
-                        'Predicted': y_pred + y_test_min  # Convert back to original labels
-                    })
-
-                    # Add probability columns
-                    for i, cls in enumerate(unique_classes):
-                        results[f'Prob_Class_{cls}'] = y_pred_proba[:, i]
-
-                # Fallback for classifiers without probability prediction
+                    # Handle PLS-DA specifically
+                    results, metrics = train_plsda(
+                        X_train, X_test, y_train_col, y_test_col,
+                        labels_train, labels_test, unique_classes,
+                        classifier, y_min, col
+                    )
                 else:
-                    # Train the classifier
-                    classifier.fit(X_train, y_train_col)
+                    # Handle other classifiers
+                    results, metrics = train_classifier(
+                        X_train, X_test, y_train_col, y_test_col,
+                        labels_train, labels_test, unique_classes,
+                        classifier, y_min
+                    )
 
-                    # Predict labels
-                    y_pred = classifier.predict(X_test)
-
-                    # Create results DataFrame without probabilities
-                    results = pd.DataFrame({
-                        'Label': labels_test,
-                        'Actual': y_test_col + y_test_min,  # Convert back to original labels
-                        'Predicted': y_pred + y_test_min  # Convert back to original labels
-                    })
-
-                # Save results to Excel
-                results.to_excel(f'{clf_name.lower().replace(" ", "_")}_classification_results_{col}.xlsx', index=False)
-                click.echo(
-                    f"\nResults saved to '{clf_name.lower().replace(' ', '_')}_classification_results_{col}.xlsx'")
-
-                # Calculate and display metrics
-                metrics = classification_metrics(y_test_col, y_pred)
-
-                click.echo(f"\nAccuracy: {metrics['Accuracy']:.4f}")
-                click.echo("\nClassification Report:")
-                click.echo(metrics['Classification Report'])
-
-                # Plot Confusion Matrix
-                plot_confusion_matrix(
-                    y_test_col,
-                    y_pred,
-                    classes=unique_classes,
-                    title=f'{clf_name} Confusion Matrix - {col}'
-                )
-
-                # Feature importance
-                if clf_name in ['Random Forest', 'XGBoost']:
-                    feature_importance = pd.DataFrame({
-                        'feature': X.columns,
-                        'importance': classifier.feature_importances_
-                    }).sort_values('importance', ascending=False)
-
-                    click.echo("\nFeature Importance:")
-                    click.echo(feature_importance)
-                elif clf_name == 'PLS-DA':
-                    # For PLS-DA, use the PLS weights as a proxy for feature importance
-                    pls_weights = np.abs(plsda.coef_).mean(axis=0)
-                    feature_importance = pd.DataFrame({
-                        'feature': X.columns,
-                        'importance': pls_weights
-                    }).sort_values('importance', ascending=False)
-
-                    click.echo("\nPLS-DA Feature Weights:")
-                    click.echo(feature_importance)
-                elif clf_name == 'Support Vector Machine':
-                    click.echo("\nFeature importance not directly available for SVM.")
-                else:
-                    click.echo("\nFeature importance not available for this model.")
+                # Save results
+                save_results(results, metrics, clf_name, col)
 
                 # Store results
                 column_results[clf_name] = {
@@ -602,12 +512,13 @@ def supervised_learning(X, classes, labels):
                     'hyperparameters': classifier.get_params()
                 }
 
-            # Store overall results
+            # Store results for this column
             overall_results[col] = column_results
 
-        # Ask user if they're satisfied with the results
+        # Save model statistics
         save_model_statistics(overall_results)
 
+        # Check if user is satisfied
         proceed = click.prompt("Are you satisfied with the classification results? (y/n)", type=str)
         if proceed.lower() == 'y':
             break
@@ -616,6 +527,205 @@ def supervised_learning(X, classes, labels):
 
     return overall_results
 
+
+def train_plsda(X_train, X_test, y_train, y_test, labels_train, labels_test, unique_classes, plsda, y_min, col):
+    """Train and evaluate PLS-DA model with corrected class labels"""
+    # One-hot encode targets
+    lb = LabelBinarizer()
+    y_train_encoded = lb.fit_transform(y_train)
+    y_test_encoded = lb.transform(y_test)
+
+    # Fit model and get scores
+    plsda.fit(X_train, y_train_encoded)
+    train_scores = plsda.transform(X_train)
+    test_scores = plsda.transform(X_test)
+
+    # Combine scores and labels, adding y_min to restore original class labels
+    all_scores = np.vstack([train_scores, test_scores])
+    all_labels = np.concatenate([labels_train, labels_test])
+    all_classes = np.concatenate([y_train, y_test]) + y_min  # Add y_min here to restore original labels
+
+    # Save combined scores
+    save_plsda_scores(all_scores, all_labels, all_classes, y_min, col)
+
+    # Save loadings
+    save_plsda_loadings(plsda, X_train, col)
+
+    # Get predictions and adjust them back to original scale
+    y_pred = np.argmax(plsda.predict(X_test), axis=1)
+    y_pred = y_pred + y_min  # Adjust predictions back to original scale
+
+    # Create results DataFrame with original class labels
+    results = pd.DataFrame({
+        'Label': labels_test,
+        'Actual': y_test + y_min,
+        'Predicted': y_pred
+    })
+
+    # Plot scores (now with correct class labels)
+    plot_pls_da_scores(
+        create_scores_df(all_scores, all_labels, all_classes),  # all_classes already includes y_min
+        unique_classes,
+        col
+    )
+
+    # Calculate metrics using zero-based classes
+    metrics = calculate_metrics(y_test, y_pred - y_min)  # Adjust predictions back to zero-based for metric calculation
+
+    return results, metrics
+def save_results(results, metrics, clf_name, col):
+    """Save classification results without probabilities"""
+    # Save results to Excel
+    results.to_excel(f'{clf_name.lower().replace(" ", "_")}_classification_results_{col}.xlsx', index=False)
+    click.echo(f"\nResults saved to '{clf_name.lower().replace(' ', '_')}_classification_results_{col}.xlsx'")
+
+    # Print metrics
+    click.echo(f"\nAccuracy: {metrics['Accuracy']:.4f}")
+    click.echo("\nClassification Report:")
+    click.echo(metrics['Classification Report'])
+
+    # Plot confusion matrix
+    plot_confusion_matrix(
+        results['Actual'].values,
+        results['Predicted'].values,
+        np.unique(results['Actual'].values),
+        f'{clf_name} Confusion Matrix - {col}'
+    )
+
+
+def train_classifier(X_train, X_test, y_train, y_test, labels_test, unique_classes, classifier, y_min):
+    """Train and evaluate standard classifier"""
+    classifier.fit(X_train, y_train)
+    y_pred = classifier.predict(X_test)
+
+    if hasattr(classifier, 'predict_proba'):
+        y_pred_proba = classifier.predict_proba(X_test)
+        results = create_results_df(labels_test, y_test, y_pred, y_pred_proba, y_min, unique_classes)
+    else:
+        results = pd.DataFrame({
+            'Label': labels_test,
+            'Actual': y_test + y_min,
+            'Predicted': y_pred + y_min
+        })
+
+    metrics = calculate_metrics(y_test, y_pred)
+    return results, metrics
+
+
+def plot_pls_da_scores(scores_df, unique_classes, col):
+    """Plot PLS-DA scores without dataset distinction"""
+    if not os.path.exists('figures'):
+        os.makedirs('figures')
+
+    # Get all LV scores
+    lv_columns = [col for col in scores_df.columns if col.startswith('LV')]
+    X_scores_all = scores_df[lv_columns].values
+
+    # Calculate total variance across all components
+    total_variance_all = np.var(X_scores_all, axis=0).sum()
+
+    # Calculate explained variance for each component
+    explained_variance_all = np.var(X_scores_all, axis=0)
+    explained_variance_ratio = (explained_variance_all / total_variance_all) * 100
+
+    # Plot settings
+    n_classes = len(unique_classes)
+    colormap = plt.colormaps['tab10'] if n_classes <= 10 else plt.colormaps['tab20']
+    colors = colormap(np.linspace(0, 1, n_classes))
+
+    plt.figure(figsize=(12, 8))
+
+    # Plot each class
+    for j, class_label in enumerate(unique_classes):
+        class_data = scores_df[scores_df['Class'] == class_label]
+        plt.scatter(
+            class_data['LV1'],
+            class_data['LV2'],
+            c=[colors[j]],
+            marker='o',
+            label=f'Class {class_label}',
+            alpha=0.7,
+            s=100
+        )
+
+    plt.xlabel(f'LV1 ({explained_variance_ratio[0]:.2f}%)', fontsize=12)
+    plt.ylabel(f'LV2 ({explained_variance_ratio[1]:.2f}%)', fontsize=12)
+    plt.title(f'PLS-DA Scores Plot - {col}', fontsize=14)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    plt.savefig(f'figures/pls_da_scores_plot_{col}.png', bbox_inches='tight', dpi=300)
+    plt.close()
+
+
+    click.echo(f"PLS-DA scores plot saved to 'figures/pls_da_scores_plot_{col}.png'")
+
+def create_scores_df(scores, labels, classes):
+    """Create DataFrame for PLS-DA scores without dataset distinction"""
+    scores_dict = {
+        f'LV{i+1}': scores[:, i]
+        for i in range(scores.shape[1])
+    }
+    scores_dict.update({
+        'Label': labels,
+        'Class': classes
+    })
+    return pd.DataFrame(scores_dict)
+
+def save_plsda_scores(scores, labels, classes, y_min, col):
+    """Save PLS-DA scores without dataset distinction"""
+    scores_df = create_scores_df(scores, labels, classes)
+    scores_df.to_excel(f'pls_da_scores_{col}.xlsx', index=False)
+    click.echo(f"\nPLS-DA scores saved to 'pls_da_scores_{col}.xlsx'")
+
+def save_plsda_loadings(plsda, X, col):
+    """Save PLS-DA loadings to Excel"""
+    loadings = pd.DataFrame(
+        plsda.x_loadings_,
+        index=X.columns,
+        columns=[f'LV{i + 1}' for i in range(plsda.x_loadings_.shape[1])]
+    )
+    loadings.to_excel(f'pls_da_loadings_{col}.xlsx')
+    click.echo(f"PLS-DA loadings saved to 'pls_da_loadings_{col}.xlsx'")
+
+
+def create_results_df(labels, y_true, y_pred, y_min):
+    """Create simplified results DataFrame without probabilities"""
+    return pd.DataFrame({
+        'Label': labels,
+        'Actual': y_true + y_min,
+        'Predicted': y_pred + y_min
+    })
+
+
+def calculate_metrics(y_true, y_pred):
+    """Calculate classification metrics"""
+    return {
+        'Accuracy': accuracy_score(y_true, y_pred),
+        'Classification Report': classification_report(y_true, y_pred, zero_division=0),
+        'Confusion Matrix': confusion_matrix(y_true, y_pred)
+    }
+
+
+def save_results(results, metrics, clf_name, col):
+    """Save classification results without probabilities"""
+    # Save simplified results to Excel
+    results.to_excel(f'{clf_name.lower().replace(" ", "_")}_classification_results_{col}.xlsx', index=False)
+    click.echo(f"\nResults saved to '{clf_name.lower().replace(' ', '_')}_classification_results_{col}.xlsx'")
+
+    # Print metrics
+    click.echo(f"\nAccuracy: {metrics['Accuracy']:.4f}")
+    click.echo("\nClassification Report:")
+    click.echo(metrics['Classification Report'])
+
+    # Plot confusion matrix
+    plot_confusion_matrix(
+        results['Actual'].values,
+        results['Predicted'].values,
+        np.unique(results['Actual'].values),
+        f'{clf_name} Confusion Matrix - {col}'
+    )
 def get_model_selection(is_classification):
     """
     Interactively get model selection from the user for classification only.
@@ -726,13 +836,7 @@ def plot_confusion_matrix(y_true, y_pred, classes, title):
 
 
 def save_model_statistics(overall_results, output_file='model_statistics.txt'):
-    """
-    Save detailed model statistics to a text file, now including hyperparameters
-
-    Parameters:
-    - overall_results: Dictionary containing results from all models and columns
-    - output_file: Name of the output file
-    """
+    """Save model statistics with complete misclassification information"""
     with open(output_file, 'w') as f:
         for col, column_results in overall_results.items():
             f.write(f"{'=' * 50}\n")
@@ -760,7 +864,7 @@ def save_model_statistics(overall_results, output_file='model_statistics.txt'):
                 f.write("\nConfusion Matrix:\n")
                 f.write(str(metrics['Confusion Matrix']) + "\n")
 
-                # Predictions Analysis
+                # Simple Prediction Analysis
                 predictions = model_data['predictions']
                 f.write("\nPrediction Analysis:\n")
                 f.write(f"Total Samples: {len(predictions)}\n")
@@ -768,15 +872,17 @@ def save_model_statistics(overall_results, output_file='model_statistics.txt'):
                 f.write(f"Correctly Predicted: {correct_predictions}\n")
                 f.write(f"Incorrectly Predicted: {len(predictions) - correct_predictions}\n")
 
-                # Prediction Error Analysis
+                # Complete Misclassification Details
                 misclassified = predictions[predictions['Actual'] != predictions['Predicted']]
                 f.write("\nMisclassification Details:\n")
-                f.write(str(misclassified) + "\n")
+                f.write("Label\tActual\tPredicted\n")
+                f.write("-" * 30 + "\n")
+                for _, row in misclassified.iterrows():
+                    f.write(f"{row['Label']}\t{row['Actual']}\t{row['Predicted']}\n")
 
                 f.write("\n" + "-" * 50 + "\n")
 
     click.echo(f"\nModel statistics saved to '{output_file}'")
-
 
 def get_model_hyperparameters(model_name):
     """
@@ -787,7 +893,8 @@ def get_model_hyperparameters(model_name):
     if model_name == 'PLS-DA':
         n_components = click.prompt("Enter number of components (n_components)", type=int, default=2)
         hyperparameters = {
-            'n_components': n_components
+            'n_components': n_components,
+            'scale': False
         }
 
     elif model_name == 'Support Vector Machine':
