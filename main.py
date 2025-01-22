@@ -553,7 +553,7 @@ def train_plsda(X_train, X_test, y_train, y_test, labels_train, labels_test, uni
 
     # Get predictions and adjust them back to original scale
     y_pred = np.argmax(plsda.predict(X_test), axis=1)
-    y_pred = y_pred + y_min  # Adjust predictions back to original scale
+    y_pred = y_pred + y_min
 
     # Create results DataFrame with original class labels
     results = pd.DataFrame({
