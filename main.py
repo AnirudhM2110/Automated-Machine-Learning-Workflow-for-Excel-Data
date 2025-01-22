@@ -562,15 +562,15 @@ def train_plsda(X_train, X_test, y_train, y_test, labels_train, labels_test, uni
         'Predicted': y_pred
     })
 
-    # Plot scores (now with correct class labels)
+    # Plot scores
     plot_pls_da_scores(
         create_scores_df(all_scores, all_labels, all_classes),  # all_classes already includes y_min
         unique_classes,
         col
     )
 
-    # Calculate metrics using zero-based classes
-    metrics = calculate_metrics(y_test, y_pred - y_min)  # Adjust predictions back to zero-based for metric calculation
+    # Calculate metrics
+    metrics = calculate_metrics(y_test, y_pred - y_min)
 
     return results, metrics
 def save_results(results, metrics, clf_name, col):
