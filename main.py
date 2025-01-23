@@ -15,7 +15,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from xgboost import XGBClassifier
 from sklearn.svm import SVC
-from sklearn.preprocessing import LabelBinarizer
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.cross_decomposition import PLSRegression
 
 
@@ -438,11 +438,6 @@ def save_clustering_results(labels, cluster_labels):
 def supervised_learning(X, classes, labels):
     """
     Perform supervised learning with multiple classifiers and visualization.
-
-    Parameters:
-    - X: DataFrame of features
-    - classes: DataFrame of target variables
-    - labels: Series of sample labels
     """
     # Validate classification task
     unique_values = classes.nunique()
@@ -489,16 +484,25 @@ def supervised_learning(X, classes, labels):
 
                 if clf_name == 'PLS-DA':
                     # Handle PLS-DA specifically
-                    results, metrics = train_plsda(
+                    results, metrics, plsda, scores = train_plsda(
                         X_train, X_test, y_train_col, y_test_col,
                         labels_train, labels_test, unique_classes,
                         classifier, y_min, col
+                    )
+
+                    # Plot PLS-DA scores with variance explanation
+                    plot_pls_da_scores(
+                        create_scores_df(scores, labels_train, y_train_col + y_min),
+                        unique_classes,
+                        col,
+                        plsda,
+                        X_train
                     )
                 else:
                     # Handle other classifiers
                     results, metrics = train_classifier(
                         X_train, X_test, y_train_col, y_test_col,
-                        labels_train, labels_test, unique_classes,
+                        labels_test, unique_classes,
                         classifier, y_min
                     )
 
@@ -528,51 +532,67 @@ def supervised_learning(X, classes, labels):
     return overall_results
 
 
+
 def train_plsda(X_train, X_test, y_train, y_test, labels_train, labels_test, unique_classes, plsda, y_min, col):
-    """Train and evaluate PLS-DA model with corrected class labels"""
-    # One-hot encode targets
-    lb = LabelBinarizer()
-    y_train_encoded = lb.fit_transform(y_train)
-    y_test_encoded = lb.transform(y_test)
+    """Enhanced PLS-DA training with feature importance and label encoding"""
+    # Label Encoding
+    le = LabelEncoder()
+    y_train_encoded = le.fit_transform(y_train + y_min)
+    y_test_encoded = le.transform(y_test + y_min)
 
-    # Fit model and get scores
+    # Fit model
     plsda.fit(X_train, y_train_encoded)
-    train_scores = plsda.transform(X_train)
-    test_scores = plsda.transform(X_test)
 
-    # Combine scores and labels, adding y_min to restore original class labels
-    all_scores = np.vstack([train_scores, test_scores])
-    all_labels = np.concatenate([labels_train, labels_test])
-    all_classes = np.concatenate([y_train, y_test]) + y_min  # Add y_min here to restore original labels
+    # Compute scores
+    scores = plsda.transform(X_train)
 
-    # Save combined scores
-    save_plsda_scores(all_scores, all_labels, all_classes, y_min, col)
+    # Calculate and save feature importance
+    save_feature_importance(
+        X_train,
+        X_train.columns,
+        y_train_encoded,
+        plsda,
+        plsda.n_components,
+        f'pls_da_feature_importance_{col}.csv'
+    )
 
-    # Save loadings
-    save_plsda_loadings(plsda, X_train, col)
+    # Predictions
+    y_pred = plsda.predict(X_test)
+    y_pred_classes = np.rint(y_pred).astype(int)
+    y_pred_classes = np.clip(y_pred_classes, 0, len(unique_classes) - 1)
+    y_pred_decoded = y_pred_classes + y_min
 
-    # Get predictions and adjust them back to original scale
-    y_pred = np.argmax(plsda.predict(X_test), axis=1)
-    y_pred = y_pred + y_min
-
-    # Create results DataFrame with original class labels
+    # Results DataFrame
     results = pd.DataFrame({
         'Label': labels_test,
         'Actual': y_test + y_min,
-        'Predicted': y_pred
+        'Predicted': y_pred_decoded
     })
 
-    # Plot scores
-    plot_pls_da_scores(
-        create_scores_df(all_scores, all_labels, all_classes),  # all_classes already includes y_min
-        unique_classes,
-        col
+    return results, calculate_metrics(y_test, y_pred_classes), plsda, scores
+
+
+def save_feature_importance(X, X_columns, y, pls, n_components, col):
+    """Save feature importance for PLS-DA model in Excel format"""
+    # Compute feature importance based on weights
+    feature_importance = np.abs(pls.x_weights_[:, :n_components])
+
+    # Create DataFrame with feature importances
+    importance_df = pd.DataFrame(
+        feature_importance,
+        index=X_columns,
+        columns=[f'Component_{i + 1}' for i in range(n_components)]
     )
 
-    # Calculate metrics
-    metrics = calculate_metrics(y_test, y_pred - y_min)
+    # Normalize and round importances
+    importance_df = importance_df.div(importance_df.sum(axis=0), axis=1).round(4)
 
-    return results, metrics
+    # Save to Excel with dynamic filename based on column
+    output_filename = f'pls_da_feature_importance_{col}.xlsx'
+    importance_df.to_excel(output_filename)
+    click.echo(f"Feature importance saved to {output_filename}")
+
+    return importance_df
 def save_results(results, metrics, clf_name, col):
     """Save classification results without probabilities"""
     # Save results to Excel
@@ -612,21 +632,22 @@ def train_classifier(X_train, X_test, y_train, y_test, labels_test, unique_class
     return results, metrics
 
 
-def plot_pls_da_scores(scores_df, unique_classes, col):
-    """Plot PLS-DA scores without dataset distinction"""
+def plot_pls_da_scores(scores_df, unique_classes, col, pls_model, X):
+    """Plot PLS-DA scores with detailed variance explanation"""
     if not os.path.exists('figures'):
         os.makedirs('figures')
 
     # Get all LV scores
     lv_columns = [col for col in scores_df.columns if col.startswith('LV')]
-    X_scores_all = scores_df[lv_columns].values
+    X_scores = scores_df[lv_columns].values
 
-    # Calculate total variance across all components
-    total_variance_all = np.var(X_scores_all, axis=0).sum()
+    # Calculate total variance of original data
+    total_variance_X = np.var(X, axis=0).sum()
 
-    # Calculate explained variance for each component
-    explained_variance_all = np.var(X_scores_all, axis=0)
-    explained_variance_ratio = (explained_variance_all / total_variance_all) * 100
+    # Calculate variance explained by each PLS component
+    explained_variance = [
+        np.var(X_scores[:, i]) / total_variance_X for i in range(pls_model.n_components)
+    ]
 
     # Plot settings
     n_classes = len(unique_classes)
@@ -648,9 +669,9 @@ def plot_pls_da_scores(scores_df, unique_classes, col):
             s=100
         )
 
-    plt.xlabel(f'LV1 ({explained_variance_ratio[0]:.2f}%)', fontsize=12)
-    plt.ylabel(f'LV2 ({explained_variance_ratio[1]:.2f}%)', fontsize=12)
-    plt.title(f'PLS-DA Scores Plot - {col}', fontsize=14)
+    plt.xlabel(f'LV1 ({explained_variance[0] * 100:.2f}%)', fontsize=12)
+    plt.ylabel(f'LV2 ({explained_variance[1] * 100:.2f}%)', fontsize=12)
+    plt.title(f'PLS-DA Plot - {col}', fontsize=14)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -658,11 +679,10 @@ def plot_pls_da_scores(scores_df, unique_classes, col):
     plt.savefig(f'figures/pls_da_scores_plot_{col}.png', bbox_inches='tight', dpi=300)
     plt.close()
 
-
     click.echo(f"PLS-DA scores plot saved to 'figures/pls_da_scores_plot_{col}.png'")
 
 def create_scores_df(scores, labels, classes):
-    """Create DataFrame for PLS-DA scores without dataset distinction"""
+    """Create DataFrame for PLS-DA scores"""
     scores_dict = {
         f'LV{i+1}': scores[:, i]
         for i in range(scores.shape[1])
@@ -672,7 +692,6 @@ def create_scores_df(scores, labels, classes):
         'Class': classes
     })
     return pd.DataFrame(scores_dict)
-
 def save_plsda_scores(scores, labels, classes, y_min, col):
     """Save PLS-DA scores without dataset distinction"""
     scores_df = create_scores_df(scores, labels, classes)
